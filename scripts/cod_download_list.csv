@@ -1,0 +1,84 @@
+sg_number,sg_symbol,cod_id,formula,name,atoms_cell,vol,cif_url
+3,P 1 2 1,1008916,F7 K Yb2,Potassium diytterbium fluoride - $-beta,9,159.3,https://www.crystallography.net/cod/1008916.cif
+6,P 1 m 1,4119149,K Nb O3,,3,65.005,https://www.crystallography.net/cod/4119149.cif
+10,P 1 2/m 1,1544552,Al O4 P,AlPO4 monoclinic CaCl2 structure @ 97.5 GPa,4,38.78,https://www.crystallography.net/cod/1544552.cif
+17,P 2 2 21,1525209,D1.37 Fe Ti,Fe Ti D1.37,6,61.221,https://www.crystallography.net/cod/1525209.cif
+21,C 2 2 2,4344305,Ho Sb2,,6,151.751,https://www.crystallography.net/cod/4344305.cif
+22,F 2 2 2,1521320,Cu O2,,12,227.191,https://www.crystallography.net/cod/1521320.cif
+23,I 2 2 2,7209475,B P S4,B (P S4),12,265.776,https://www.crystallography.net/cod/7209475.cif
+24,I 21 21 21,9006301,O2 Si,,24,283.269,https://www.crystallography.net/cod/9006301.cif
+25,P m m 2,1509294,Ag Cu Te2,,2,86.872,https://www.crystallography.net/cod/1509294.cif
+30,P n c 2,4001944,Ag I3 O8,,48,773.5,https://www.crystallography.net/cod/4001944.cif
+34,P n n 2,9012540,Fe Sb2,Seinajokite,6,121.921,https://www.crystallography.net/cod/9012540.cif
+35,C m m 2,9008052,Cd Cl2 N2,,10,270.158,https://www.crystallography.net/cod/9008052.cif
+37,C c c 2,2003027,Li2 O5 Si2,Lithium Disilicate,36,404.2,https://www.crystallography.net/cod/2003027.cif
+44,I m m 2,2310656,Hg O,,4,64.514,https://www.crystallography.net/cod/2310656.cif
+46,I m a 2,9006289,O2 Si,,24,402.993,https://www.crystallography.net/cod/9006289.cif
+47,P m m m,1510202,Au K O2,K Au O2,2,63.011,https://www.crystallography.net/cod/1510202.cif
+49,P c c m,1531068,O5 Ta2,Ta2 O5,14,178.17,https://www.crystallography.net/cod/1531068.cif
+50,P n c b :1,1000414,La2 Ni O4,Dilanthanum niccolate,28,379.7,https://www.crystallography.net/cod/1000414.cif
+51,P m m b,1533015,Cu0.5 Ni0.5 Ti,Ti (Ni0.5 Cu0.5),2,56.325,https://www.crystallography.net/cod/1533015.cif
+53,P m n a,1530590,Sb2 Se4 Tl2,Tl2 Sb2 Se4,8,225.72,https://www.crystallography.net/cod/1530590.cif
+55,P b a m,1510111,Au Cu0.9 Ga0.1,Au (Cu0.9 Ga0.1),7,115.111,https://www.crystallography.net/cod/1510111.cif
+65,C m m m,1526563,Li2 N Na,Li2 Na N,8,108.274,https://www.crystallography.net/cod/1526563.cif
+66,C c c m,1525007,D3.4 Ti4,(Ti2 D3)1.6,7,81.226,https://www.crystallography.net/cod/1525007.cif
+67,C m m a,9012694,O Pb,Litharge,8,157.158,https://www.crystallography.net/cod/9012694.cif
+71,I m m m,1523674,Ni2 V,,6,69.395,https://www.crystallography.net/cod/1523674.cif
+73,I b c a,1535987,Li4 N3 Ta,Li4 (Ta N3),64,676.525,https://www.crystallography.net/cod/1535987.cif
+74,I m m a,1527280,Ca Ga1.184 Pd0.296,Ca (Ga0.8 Pd0.2)1.48,9,249.89,https://www.crystallography.net/cod/1527280.cif
+83,P 4/m,1551985,Cu La O3,,3,57.938,https://www.crystallography.net/cod/1551985.cif
+84,P 42/m,1536093,Co4 In9.08 Zn2.92,,15,313.816,https://www.crystallography.net/cod/1536093.cif
+91,P 41 2 2,9010293,Fe2 Mg O4,,28,279.536,https://www.crystallography.net/cod/9010293.cif
+94,P 42 21 2,1511227,B Li3 N2,Li3 (B N2),12,113.399,https://www.crystallography.net/cod/1511227.cif
+95,P 43 2 2,1549041,Ge O4 Zn2,Zn2GeO4 tetragonal spinel,28,291.103,https://www.crystallography.net/cod/1549041.cif
+98,I 41 2 2,9008973,Nb P,,8,125.813,https://www.crystallography.net/cod/9008973.cif
+99,P 4 m m,1533406,O2.802 Pb0.983 Ti,Pb0.983 (Ti O2.802),2,63.136,https://www.crystallography.net/cod/1533406.cif
+100,P 4 b m,2106680,K2 O8 V3,K2 V O (V2 O7),26,410.3,https://www.crystallography.net/cod/2106680.cif
+101,P 42 c m,1532684,Mg11.92 Ni2.32 Sn1.76,,30,666.486,https://www.crystallography.net/cod/1532684.cif
+102,P 42 n m,1000239,F6 Fe2 Li,Lithium iron(II) iron(III) fluoride,18,204.1,https://www.crystallography.net/cod/1000239.cif
+103,P 4 c c,1539312,Nb Te4,,10,288.774,https://www.crystallography.net/cod/1539312.cif
+105,P 42 m c,7222662,Ba Ge2 P2,,20,493.288,https://www.crystallography.net/cod/7222662.cif
+108,I 4 c m,2002219,Bi2 O4 Pd,Dibismuth palladate,28,439.4,https://www.crystallography.net/cod/2002219.cif
+109,I 41 m d,1510056,Au0.2 Nd Si1.8,Nd Si (Si0.8 Au0.2),11,244.053,https://www.crystallography.net/cod/1510056.cif
+111,P -4 2 m,2002187,Ba Bi O3,Barium bismuth(IV) oxide,3,86.0,https://www.crystallography.net/cod/2002187.cif
+112,P -4 2 c,1525948,Cu0.65 In1.99 Se3.6,,11,380.926,https://www.crystallography.net/cod/1525948.cif
+115,P -4 m 2,1534188,Ba0.726 Bi1.261 O2.65,Ba.726 Bi1.261 O2.65,3,84.962,https://www.crystallography.net/cod/1534188.cif
+116,P -4 c 2,2310528,F6 K Nb,K (Nb F6),16,269.666,https://www.crystallography.net/cod/2310528.cif
+120,I -4 c 2,1539545,Cr F4 Sr,Sr Cr F4,24,351.438,https://www.crystallography.net/cod/1539545.cif
+124,P 4/m c c,2300522,Nb Te4,,10,276.693,https://www.crystallography.net/cod/2300522.cif
+125,P 4/n b m :1,1522990,Mo0.96 U7.04,,7,163.011,https://www.crystallography.net/cod/1522990.cif
+127,P 4/m b m,7221237,Hg Ni,Ni Hg,4,55.918,https://www.crystallography.net/cod/7221237.cif
+130,P 4/n c c :2,1521532,O3 W,W O3,16,219.903,https://www.crystallography.net/cod/1521532.cif
+131,P 42/m m c,1008119,Cu0.8 O Pt0.2,Copper platinum(II) oxide (.8/.2/1),3,44.7,https://www.crystallography.net/cod/1008119.cif
+132,P 42/m c m,1509333,Ag F6 Ta,Ag (Ta F6),16,239.638,https://www.crystallography.net/cod/1509333.cif
+133,P 42/n b c :2,1538473,P Ta3,Ta3 P,32,517.055,https://www.crystallography.net/cod/1538473.cif
+134,P 42/n n m :2,1509667,Ag2 Li3 Si3,Li3 Ag2 Si3,16,225.991,https://www.crystallography.net/cod/1509667.cif
+138,P 42/n c m :2,1510610,Au Br,,8,224.162,https://www.crystallography.net/cod/1510610.cif
+142,I 41/a c d :1,1008662,Ir O4 Sr2,Distrontium iridium(IV) oxide,56,776.0,https://www.crystallography.net/cod/1008662.cif
+143,P 3,1540884,In Si Te3,,3,304.843,https://www.crystallography.net/cod/1540884.cif
+149,P 3 1 2,1530197,U V2,U V2 O6,2,102.373,https://www.crystallography.net/cod/1530197.cif
+151,P 31 1 2,7222957,Ga Na Sn5,,5,213.968,https://www.crystallography.net/cod/7222957.cif
+153,P 32 1 2,1010575,Cl3 Cr,Chromium chloride,24,542.4,https://www.crystallography.net/cod/1010575.cif
+156,P 3 m 1,7209296,Ag Al S2,,2,72.564,https://www.crystallography.net/cod/7209296.cif
+160,R 3 m :R,1537749,N3 Na,Na N3,3,58.48,https://www.crystallography.net/cod/1537749.cif
+174,P -6,1010510,N Nb2,Niobium nitride (2/1),2,40.2,https://www.crystallography.net/cod/1010510.cif
+175,P 6/m,1530152,O3.12 Ta1.52,Ta1.52 O3.12,4,196.411,https://www.crystallography.net/cod/1530152.cif
+179,P 65 2 2,4345610,B4 Ni O7,Nickel tetraborate,72,547.5,https://www.crystallography.net/cod/4345610.cif
+181,P 64 2 2,2310567,Re0.1 Si2 Ti0.9,Ti0.9 Re0.1 Si2,8,124.709,https://www.crystallography.net/cod/2310567.cif
+182,P 63 2 2,1523551,Ni2 Si,,6,63.055,https://www.crystallography.net/cod/1523551.cif
+183,P 6 m m,1532706,D5.22 La0.95 Ni5.09,La0.95 Ni5.09 D5.22,10,104.051,https://www.crystallography.net/cod/1532706.cif
+185,P 63 c m,1533192,Ba3 Cr S5,,18,446.167,https://www.crystallography.net/cod/1533192.cif
+187,P -6 m 2,1527786,Sn0.85 Zn0.15,(Sn0.85 Zn0.15),1,25.965,https://www.crystallography.net/cod/1527786.cif
+188,P -6 c 2,1527375,Ba5 Ga6,,21,751.835,https://www.crystallography.net/cod/1527375.cif
+190,P -6 2 c,4030938,O4 Rh2 Sr,,6,92.598,https://www.crystallography.net/cod/4030938.cif
+196,F 2 3,9000045,Cu5 Fe S4,Bornite,9,163.667,https://www.crystallography.net/cod/9000045.cif
+197,I 2 3,1511475,B4 Li5,Li5 B4,9,119.823,https://www.crystallography.net/cod/1511475.cif
+200,P m -3,2310109,B4.2 Pd0.84 Th,Th Pd0.84 B4.2,4,74.088,https://www.crystallography.net/cod/2310109.cif
+201,P n -3 :1,9005769,Cu2 O,Cuprite,6,77.833,https://www.crystallography.net/cod/9005769.cif
+202,F m -3,7223706,Cu F6 Zr,Cu (Zr F6),32,500.377,https://www.crystallography.net/cod/7223706.cif
+208,P 42 3 2,1010126,P2 Zn3,Zinc phosphide,10,183.3,https://www.crystallography.net/cod/1010126.cif
+209,F 4 3 2,1528204,Na3 O4 P,Na3 (P O4),31,409.014,https://www.crystallography.net/cod/1528204.cif
+210,F 41 3 2,1010954,O2 Si,Cristobalite high,24,360.9,https://www.crystallography.net/cod/1010954.cif
+212,P 43 3 2,2107402,Si2 Sr,Sr Si2,12,276.531,https://www.crystallography.net/cod/2107402.cif
+217,I -4 3 m,1010134,F4 Si,Silicon fluoride,10,158.3,https://www.crystallography.net/cod/1010134.cif
+218,P -4 3 n,1010493,Ag3 O4 P,Silver phosphate,10,215.6,https://www.crystallography.net/cod/1010493.cif
