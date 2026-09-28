@@ -74,6 +74,8 @@
   .axsym{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;min-width:24px}
   .axdir{font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--text)}
   .axn{margin-left:auto;color:var(--muted);font-size:12px}
+  .axcl{display:inline-flex;gap:3px;margin-left:6px;align-items:center}
+  .axcl i{display:inline-block;width:8px;height:8px;border-radius:50%}
   .axplay{cursor:pointer;color:var(--accent);font-size:11px;width:15px;text-align:center;user-select:none}
   .axplay:hover{color:var(--accent2)}
   .axnone{color:var(--muted);font-size:12px;padding:4px 8px}
@@ -232,7 +234,51 @@ function computeAxes(ops){
     if(!groups.has(gk)) groups.set(gk,{key:gk,sym,dir:a.dir,order:a.order,m:a.m,screw:a.m!==0,lines:[]});
     groups.get(gk).lines.push(a);
   }
-  return [...groups.values()].sort((x,y)=> y.order-x.order || (x.screw?1:0)-(y.screw?1:0) || (x.dir.join()<y.dir.join()?-1:1));
+  const out=[...groups.values()].sort((x,y)=> y.order-x.order || (x.screw?1:0)-(y.screw?1:0) || (x.dir.join()<y.dir.join()?-1:1));
+  assignAxisClasses(out,ops);
+  return out;
+}
+function _canonLineKey(dir,p){
+  const d=_redInt(dir);
+  const ab=[Math.abs(d[0]),Math.abs(d[1]),Math.abs(d[2])], a=ab.indexOf(Math.max(ab[0],ab[1],ab[2]));
+  const lam=-p[a]/d[a];
+  let q=[p[0]+lam*d[0],p[1]+lam*d[1],p[2]+lam*d[2]];
+  q=q.map((x,i)=> i===a?0:((x%1)+1)%1);
+  q=q.map(x=>{let r=Math.round(x*24)/24; if(Math.abs(r-1)<1e-6)r=0; return r;});
+  return d.join(',')+'|'+q.map(x=>x.toFixed(3)).join(',');
+}
+// Two axis lines belong to one class when some operation of the group (lattice
+// translations included) maps one onto the other. Classes of the same rotation
+// order share a hue and are told apart by shade.
+let axClassColor={};
+function assignAxisClasses(groups,ops){
+  const lines=[];
+  for(const g of groups){ g.classes=[]; for(const a of g.lines){ a._order=g.order; lines.push(a); } }
+  const idx=new Map(); lines.forEach((a,i)=>idx.set(_canonLineKey(a.dir,a.p0),i));
+  const par=lines.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i]));
+  for(let i=0;i<lines.length;i++){
+    const a=lines[i];
+    for(const op of ops){
+      const R=op.slice(0,9);
+      const d2=_mv(R,a.dir), p2=_mv(R,a.p0).map((x,k)=>x+op[9+k]/24);
+      const j=idx.get(_canonLineKey(d2,p2));
+      if(j!==undefined){ const ri=find(i), rj=find(j); if(ri!==rj) par[ri]=rj; }
+    }
+  }
+  const clsOf=new Map(); let n=0;
+  lines.forEach((a,i)=>{ const r=find(i); if(!clsOf.has(r)) clsOf.set(r,n++); a.cls=clsOf.get(r); });
+  const HUE={2:[216,100],3:[149,72],4:[29,100],6:[266,100]};
+  const byOrder=new Map();
+  for(const a of lines){ if(!byOrder.has(a._order)) byOrder.set(a._order,[]); const l=byOrder.get(a._order); if(!l.includes(a.cls)) l.push(a.cls); delete a._order; }
+  axClassColor={};
+  for(const [o,cls] of byOrder){
+    const [h,s]=HUE[o]||[0,0];
+    cls.forEach((c,i)=>{
+      const l= cls.length===1 ? 72 : 45+33*i/(cls.length-1);
+      axClassColor[c]=`hsl(${h},${s}%,${Math.round(l)}%)`;
+    });
+  }
+  for(const g of groups) g.classes=[...new Set(g.lines.map(a=>a.cls))].sort((x,y)=>x-y);
 }
 function axColor(o){return {2:'#7bb0ff',3:'#6ee7a8',4:'#ffb26b',6:'#c79bff'}[o]||'#cccccc';}
 function dirStr(d){return '['+d.map(x=> x<0?(-x)+'̅':''+x).join('')+']';}
@@ -285,14 +331,20 @@ function addScrewHelix(a,b,rad,color,op,top,order,m,periodLen){
 }
 function renderAxes(M,center){
   if(!showAxes||!axesData) return;
-  const COL={2:0x7bb0ff,3:0x6ee7a8,4:0xffb26b,6:0xc79bff}, anySel=selectedAxis!=null;
+  const anySel=selectedAxis!=null;
   for(const g of axesData){
-    const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1, col=COL[g.order]||0xffffff;
+    const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1;
     const pv=fracToCart(g.dir,M,[0,0,0]), periodLen=Math.hypot(pv[0],pv[1],pv[2]);
     for(const a of g.lines){
-      const seg=clipAxisFrac(a.dir,a.p0); if(!seg) continue;
-      const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
-      if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
+      const col=new THREE.Color(axClassColor[a.cls]||'#ffffff').getHex();
+      // draw every lattice-equivalent copy that touches the cell, edges included
+      const drawn=new Set();
+      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++){
+        const seg=clipAxisFrac(a.dir,[a.p0[0]+lx,a.p0[1]+ly,a.p0[2]+lz]); if(!seg) continue;
+        const sk=seg[0].concat(seg[1]).map(x=>x.toFixed(3)).join(','); if(drawn.has(sk)) continue; drawn.add(sk);
+        const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
+        if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
+      }
     }
   }
 }
@@ -300,14 +352,15 @@ function renderAxesPanel(){
   const el=document.getElementById('axes'); if(!el) return;
   if(!axesData){el.innerHTML='';return;}
   const playing=anim?anim.g.key:null;
-  const rows=arr=>arr.length?arr.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:${axColor(g.order)}">${g.sym}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
+  const rows=arr=>arr.length?arr.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:${axColor(g.order)}">${g.sym}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axcl">${(g.classes||[]).map(c=>`<i style="background:${axClassColor[c]}"></i>`).join('')}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const rot=axesData.filter(g=>!g.screw), scr=axesData.filter(g=>g.screw);
   const tot=axesData.reduce((n,g)=>n+g.lines.length,0);
+  const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size;
   el.innerHTML=`<h2>Symmetry axes</h2>
-    <div class="axhint">▶ animates the operation about its axis (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own).</div>
+    <div class="axhint">▶ animates the operation about its axis (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own). Hue = rotation order; shades within a hue separate the symmetry-inequivalent axes.</div>
     <div class="axgrp">Rotation axes</div>${rows(rot)}
     <div class="axgrp">Screw axes</div>${rows(scr)}
-    <div class="axtot">${tot} axes in this cell · ${axesData.length} types</div>`;
+    <div class="axtot">${tot} axes in this cell · ${axesData.length} types · ${uniq} symmetry-unique</div>`;
   el.querySelectorAll('.ax').forEach(r=>r.onclick=(ev)=>{
     if(ev.target.classList.contains('axplay')) return;
     selectedAxis = selectedAxis===r.dataset.k ? null : r.dataset.k;
