@@ -426,7 +426,9 @@ window.addEventListener('resize',resize);
 
 let dragging=false,px=0,py=0;
 canvas.addEventListener('pointerdown',e=>{dragging=true;autorot=false;px=e.clientX;py=e.clientY;});
-window.addEventListener('pointerup',()=>{dragging=false; if(mode==='3d') autorot=true;});
+// A drag hands control to the viewer: the model holds its orientation until
+// "3D · drag" is pressed again, which restores both the default view and the spin.
+window.addEventListener('pointerup',()=>{dragging=false;});
 window.addEventListener('pointermove',e=>{
   if(!dragging||mode!=='3d')return;
   model.rotation.y+=(e.clientX-px)*0.01; model.rotation.x+=(e.clientY-py)*0.01;
