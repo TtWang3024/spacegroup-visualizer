@@ -75,11 +75,15 @@
   .axdir{font-family:ui-monospace,Menlo,Consolas,monospace;color:var(--text)}
   .axn{margin-left:auto;color:var(--muted);font-size:12px}
   .axcl{display:inline-flex;gap:3px;margin-left:6px;align-items:center}
-  .axcl i{display:inline-block;width:8px;height:8px;border-radius:50%}
+  .axcl i{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;font-style:normal;font-size:10px;font-weight:600;line-height:1;cursor:pointer;border:1.5px solid transparent}
+  .axcl i:hover{border-color:rgba(255,255,255,.6)}
+  .axcl i.on{border-color:#fff}
   .axplay{cursor:pointer;color:var(--accent);font-size:11px;width:15px;text-align:center;user-select:none}
   .axplay:hover{color:var(--accent2)}
   .axnone{color:var(--muted);font-size:12px;padding:4px 8px}
   .axtot{margin-top:12px;color:var(--accent2);font-size:12px}
+  .axiso{margin-top:8px;padding:7px 9px;border-radius:7px;background:rgba(110,168,255,.10);border:1px solid rgba(110,168,255,.28);color:var(--text);font-size:11.5px;line-height:1.55}
+  .axiso b{color:var(--accent);font-weight:600}
   .exbox{margin:12px 0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px}
   .exk{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
   .exv{font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:3px}
@@ -250,6 +254,29 @@ function _canonLineKey(dir,p){
 // Two axis lines belong to one class when some operation of the group (lattice
 // translations included) maps one onto the other. Classes of the same rotation
 // order share a hue and are told apart by shade.
+// spread the selected row's classes evenly around the hue wheel, so no two land near each other
+// whatever their number; a fixed list always crowds the warm end once there are five or more
+function vividFor(list,cls){
+  const n=Math.max(1,list.length), i=Math.max(0,list.indexOf(cls));
+  return `hsl(${Math.round((48+360*i/n)%360)},85%,62%)`;
+}
+// swatches carry a count, so pick black or white ink by relative luminance; HSL lightness alone
+// is not perceptual, and a saturated yellow at 48% lightness is far brighter than a blue at 48%
+function labelInk(col){
+  const m=/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/.exec(col||'');
+  if(!m) return '#10151c';
+  const h=+m[1]/360, s=+m[2]/100, l=+m[3]/100;
+  const q=l<0.5?l*(1+s):l+s-l*s, p=2*l-q;
+  const ch=t=>{t=(t+1)%1; return t<1/6?p+(q-p)*6*t : t<1/2?q : t<2/3?p+(q-p)*(2/3-t)*6 : p;};
+  return (0.2126*ch(h+1/3)+0.7152*ch(h)+0.0722*ch(h-1/3))>0.45?'#10151c':'#ffffff';
+}
+function shiftHue(col,deg){
+  const m=/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/.exec(col||'');
+  return m?`hsl(${Math.round((+m[1]+deg)%360)},${m[2]}%,${m[3]}%)`:col;
+}
+// while one class is isolated, the copy lying in this cell keeps the class colour and every lattice
+// repeat takes the opposite hue, so the two read apart at a glance
+const OPPOSITE=180;
 let axClassColor={};
 function assignAxisClasses(groups,ops){
   const lines=[];
@@ -454,13 +481,29 @@ function renderAxes(M,center){
   for(const g of axesData){
     const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1;
     const pv=fracToCart(g.dir,M,[0,0,0]), periodLen=Math.hypot(pv[0],pv[1],pv[2]);
+    const iso=sel&&selectedClass!=null;
+    // collect every lattice-equivalent copy that touches the cell first, edges included: how many
+    // there are is how many cells share that axis, and the busiest one anchors the hue range
+    const items=[];
     for(const a of g.lines){
-      const col=new THREE.Color(axClassColor[a.cls]||'#ffffff').getHex();
-      // draw every lattice-equivalent copy that touches the cell, edges included
-      const drawn=new Set();
-      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++){
+      if(iso&&a.cls!==selectedClass) continue;                       // isolating one class of this row
+      // visit the in-cell copy first so it claims its key before any shifted copy that clips to the
+      // same segment, otherwise a translation along the axis direction would steal the canonical slot
+      const offs=[[0,0,0]];
+      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++) if(lx||ly||lz) offs.push([lx,ly,lz]);
+      const segs=[], drawn=new Set();
+      for(const [lx,ly,lz] of offs){
         const seg=clipAxisFrac(a.dir,[a.p0[0]+lx,a.p0[1]+ly,a.p0[2]+lz]); if(!seg) continue;
         const sk=seg[0].concat(seg[1]).map(x=>x.toFixed(3)).join(','); if(drawn.has(sk)) continue; drawn.add(sk);
+        segs.push({seg,canon:!lx&&!ly&&!lz});
+      }
+      items.push({a,segs});
+    }
+    for(const {a,segs} of items){
+      const base=sel?vividFor(g.classes||[],a.cls):(axClassColor[a.cls]||'#ffffff');
+      const cols=[new THREE.Color(base).getHex(),new THREE.Color(iso?shiftHue(base,OPPOSITE):base).getHex()];
+      for(const {seg,canon} of segs){
+        const col=cols[canon?0:1];
         const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
         if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
       }
@@ -517,14 +560,22 @@ function renderPlanes(M,center){
   const anySel=selectedAxis!=null, dash=0.045*_cellScale(M);
   for(const g of planesData){
     const sel=selectedAxis===g.key;
+    // drop unselected sheets entirely; even at low opacity they haze the rods and centres behind them
+    if(anySel&&!sel) continue;
     const base=g.sym==='m'?0.18:0.12;
-    const op= sel?0.4 : (anySel?0.05:base);
+    const op= sel?0.4:base;
+    const iso=sel&&selectedClass!=null;
+    const items=[];
     for(const p of g.planes){
-      const col=plClassColor[p.cls]||'#ff8ab0';
-      for(let k=-1;k<=1;k++){                     // lattice-equivalent copies at the cell faces too
-        const poly=clipPlaneFrac(p.n,p.d0+k); if(!poly) continue;
-        addPlanePoly(poly,M,center,col,op,sel,g.sym!=='m',dash);
-      }
+      if(iso&&p.cls!==selectedClass) continue;                       // isolating one class of this row
+      const polys=[];                             // lattice-equivalent copies at the cell faces too
+      for(let k=-1;k<=1;k++){ const poly=clipPlaneFrac(p.n,p.d0+k); if(poly) polys.push({poly,canon:k===0}); }
+      items.push({p,polys});
+    }
+    for(const {p,polys} of items){
+      const base=sel?vividFor(g.classes||[],p.cls):(plClassColor[p.cls]||'#ff8ab0');
+      const alt=iso?shiftHue(base,OPPOSITE):base;
+      for(const {poly,canon} of polys) addPlanePoly(poly,M,center,canon?base:alt,op,sel,g.sym!=='m',dash);
     }
   }
 }
@@ -533,45 +584,85 @@ function renderCenters(M,center){
   const anySel=selectedAxis!=null, sel=selectedAxis==='CTR';
   const op=(anySel&&!sel)?0.16:1;
   const r=(sel?0.034:0.022)*_cellScale(M);
+  const ctCls=[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b);
+  const iso=sel&&selectedClass!=null;
   for(const o of centersData){
-    const col=ctClassColor[o.cls]||'#f0d060';
-    const mat=new THREE.MeshPhongMaterial({color:col,transparent:op<1,opacity:op,emissive:col,emissiveIntensity:sel?0.6:0.3,depthTest:!sel});
+    if(iso&&o.cls!==selectedClass) continue;                        // isolating one class of this row
+    const col=sel?vividFor(ctCls,o.cls):(ctClassColor[o.cls]||'#f0d060');
+    // a strong emissive term washes distinct hues toward the same bright tint, so keep it low when selected
+    const mk=c=>new THREE.MeshPhongMaterial({color:c,transparent:op<1,opacity:op,emissive:c,emissiveIntensity:sel?0.25:0.3,depthTest:!sel});
+    const mat=mk(col), matRepeat=iso?mk(shiftHue(col,OPPOSITE)):mat;
     for(let lx=0;lx<=1;lx++)for(let ly=0;ly<=1;ly++)for(let lz=0;lz<=1;lz++){
       const f=[o.c[0]+lx,o.c[1]+ly,o.c[2]+lz];
       if(f[0]>1+1e-6||f[1]>1+1e-6||f[2]>1+1e-6) continue;
       const p=fracToCart(f,M,center);
-      const m=new THREE.Mesh(sphereGeo,mat); m.scale.setScalar(r); m.position.set(p[0],p[1],p[2]);
+      const m=new THREE.Mesh(sphereGeo,(lx||ly||lz)?matRepeat:mat); m.scale.setScalar(r); m.position.set(p[0],p[1],p[2]);
       if(sel) m.renderOrder=999;
       staticG.add(m);
     }
   }
 }
+function rowClasses(key){
+  if(key==='CTR') return centersData?[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b):[];
+  const g=(axesData||[]).find(x=>x.key===key)||(planesData||[]).find(x=>x.key===key);
+  return (g&&g.classes)||[];
+}
+// a row holding a single class has no sibling whose colour the repeats could be confused with, so
+// selecting the row isolates that class outright and the repeat colouring shows without a second
+// click on the dot. rows with two classes must stay dot-scoped: vividFor spaces two classes exactly
+// 180 apart, so one class's repeats would land on the other class's own colour
+function autoIsolate(key){ const cl=rowClasses(key); return cl.length===1?cl[0]:null; }
 function renderAxesPanel(){
   const el=document.getElementById('axes'); if(!el) return;
   if(!axesData){el.innerHTML='';return;}
   const playing=anim?anim.g.key:null;
-  const rows=arr=>arr.length?arr.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:${axColor(g.order)}">${g.sym}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axcl">${(g.classes||[]).map(c=>`<i style="background:${axClassColor[c]}"></i>`).join('')}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
+  // one swatch per symmetry class: its own colour, how many copies it contributes, click to isolate it
+  const swatch=(k,c,col,n,tot)=>`<i class="${selectedAxis===k&&selectedClass===c?'on':''}" data-k="${k}" data-cls="${c}" style="background:${col};color:${labelInk(col)}" title="${n} of the ${tot}: click to show only these">${n}</i>`;
+  const rows=arr=>arr.length?arr.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:${axColor(g.order)}">${g.sym}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axcl">${(g.classes||[]).map(c=>swatch(g.key,c,selectedAxis===g.key?vividFor(g.classes,c):axClassColor[c],g.lines.filter(a=>a.cls===c).length,g.lines.length)).join('')}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const rot=axesData.filter(g=>!g.screw), scr=axesData.filter(g=>g.screw);
   const millerStr=n=>'('+n.map(x=> x<0?(-x)+'̅':''+x).join('')+')';
-  const prows=(planesData&&planesData.length)?planesData.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:#ff8ab0">${g.sym}</span><span class="axdir">${millerStr(g.n)}</span><span class="axcl">${(g.classes||[]).map(c=>`<i style="background:${plClassColor[c]}"></i>`).join('')}</span><span class="axn">×${g.planes.length}</span></div>`).join(''):'<div class="axnone">none</div>';
+  const prows=(planesData&&planesData.length)?planesData.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:#ff8ab0">${g.sym}</span><span class="axdir">${millerStr(g.n)}</span><span class="axcl">${(g.classes||[]).map(c=>swatch(g.key,c,selectedAxis===g.key?vividFor(g.classes,c):plClassColor[c],g.planes.filter(p=>p.cls===c).length,g.planes.length)).join('')}</span><span class="axn">×${g.planes.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const ctCls=centersData?[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b):[];
-  const crow=(centersData&&centersData.length)?`<div class="ax ${selectedAxis==='CTR'?'sel':''}" data-k="CTR"><span class="axplay" data-k="CTR" title="animate this operation">${playing==='CTR'?'⏸':'▶'}</span><span class="axsym" style="color:#f0d060;text-decoration:overline">1</span><span class="axdir">&nbsp;</span><span class="axcl">${ctCls.map(c=>`<i style="background:${ctClassColor[c]}"></i>`).join('')}</span><span class="axn">×${centersData.length}</span></div>`:'<div class="axnone">none</div>';
+  const crow=(centersData&&centersData.length)?`<div class="ax ${selectedAxis==='CTR'?'sel':''}" data-k="CTR"><span class="axplay" data-k="CTR" title="animate this operation">${playing==='CTR'?'⏸':'▶'}</span><span class="axsym" style="color:#f0d060;text-decoration:overline">1</span><span class="axdir">&nbsp;</span><span class="axcl">${ctCls.map(c=>swatch('CTR',c,selectedAxis==='CTR'?vividFor(ctCls,c):ctClassColor[c],centersData.filter(o=>o.cls===c).length,centersData.length)).join('')}</span><span class="axn">×${centersData.length}</span></div>`:'<div class="axnone">none</div>';
   const tot=axesData.reduce((n,g)=>n+g.lines.length,0);
   const totP=planesData?planesData.reduce((n,g)=>n+g.planes.length,0):0;
   const totC=centersData?centersData.length:0;
+  // when one class is isolated, spell out what is on screen versus how many are genuinely distinct
+  let isoNote='';
+  if(selectedClass!=null){
+    if(selectedAxis==='CTR'&&centersData){
+      const mem=centersData.filter(o=>o.cls===selectedClass);
+      const drawn=mem.reduce((n,o)=>n+Math.pow(2,o.c.filter(x=>Math.abs(x)<1e-6).length),0);
+      const rep=drawn-mem.length, s=k=>k===1?'':'s';
+      isoNote=`<div class="axiso">Showing one class: <b>${mem.length}</b> distinct centre${s(mem.length)}, drawn as <b>${drawn}</b> sphere${s(drawn)}${rep?` because ${rep} ${rep===1?'is a periodic repeat':'are periodic repeats'} on the cell boundary`:''}. Spheres in the class colour are the distinct centres; the opposite colour marks their periodic repeats on the cell boundary.</div>`;
+    } else {
+      const g=(axesData||[]).find(x=>x.key===selectedAxis)||(planesData||[]).find(x=>x.key===selectedAxis);
+      const items=g&&(g.lines||g.planes);
+      if(items) isoNote=`<div class="axiso">Showing one class: <b>${items.filter(e=>e.cls===selectedClass).length}</b> of the ${items.length} in this row. The class colour marks each distinct element; the opposite colour marks its periodic repeats on the cell boundary.</div>`;
+    }
+  }
   const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size
            +(planesData?new Set(planesData.flatMap(g=>g.classes||[])).size:0)
            +ctCls.length;
   el.innerHTML=`<h2>Symmetry elements</h2>
-    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies.</div>
+    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies. Click a row to recolour its copies in contrasting hues, or a numbered dot to isolate one class and mark its periodic repeats in the opposite colour.</div>
     <div class="axgrp">Rotation axes</div>${rows(rot)}
     <div class="axgrp">Screw axes</div>${rows(scr)}
     <div class="axgrp">Mirror &amp; glide planes</div>${prows}
     <div class="axgrp">Inversion centres</div>${crow}
-    <div class="axtot">${tot} axes · ${totP} planes · ${totC} centres in this cell · ${uniq} symmetry-unique elements</div>`;
+    <div class="axtot">${tot} axes · ${totP} planes · ${totC} centres in this cell · ${uniq} symmetry-unique elements</div>${isoNote}`;
   el.querySelectorAll('.ax').forEach(r=>r.onclick=(ev)=>{
     if(ev.target.classList.contains('axplay')) return;
     selectedAxis = selectedAxis===r.dataset.k ? null : r.dataset.k;
+    selectedClass = selectedAxis?autoIsolate(selectedAxis):null;   // whole row again, unless it holds one class
+    if(anim) stopAnim();
+    if(!showAxes){ showAxes=true; const tb=document.getElementById('tAxes'); if(tb) tb.classList.add('on'); }
+    renderAxesPanel(); rebuild();
+  });
+  el.querySelectorAll('.axcl i').forEach(d=>d.onclick=(ev)=>{ ev.stopPropagation();
+    const k=d.dataset.k, c=+d.dataset.cls;
+    if(selectedAxis===k&&selectedClass===c){ selectedClass=null; }   // click again to bring the row back
+    else { selectedAxis=k; selectedClass=c; }
     if(anim) stopAnim();
     if(!showAxes){ showAxes=true; const tb=document.getElementById('tAxes'); if(tb) tb.classList.add('on'); }
     renderAxesPanel(); rebuild();
@@ -579,7 +670,7 @@ function renderAxesPanel(){
   el.querySelectorAll('.axplay').forEach(p=>p.onclick=(ev)=>{ ev.stopPropagation();
     const key=p.dataset.k;
     if(anim&&anim.g.key===key){ stopAnim(); renderAxesPanel(); return; }
-    selectedAxis=key; showAxes=true; const tb=document.getElementById('tAxes'); if(tb) tb.classList.add('on');
+    selectedAxis=key; selectedClass=autoIsolate(key); showAxes=true; const tb=document.getElementById('tAxes'); if(tb) tb.classList.add('on');
     rebuild();
     if(key==='CTR') animateCenter();
     else if(key.startsWith('PL')) animatePlane(planesData.find(x=>x.key===key));
@@ -603,7 +694,7 @@ const content=new THREE.Group(), staticG=new THREE.Group(); model.add(content); 
 let anim=null;
 let mode='3d', autorot=true, fitR=1.3;
 let showCell=true, showPack=false;
-let showAxes=false, axesData=null, planesData=null, centersData=null, selectedAxis=null;
+let showAxes=false, axesData=null, planesData=null, centersData=null, selectedAxis=null, selectedClass=null;
 let exampleMode=false;
 
 const PALETTE=['#6ea8ff','#ff8a3d','#8ce0c0','#e06ec0','#f0d060','#7de0ff','#b088ff','#ff6e6e'];
@@ -819,7 +910,7 @@ document.getElementById('search').addEventListener('input',e=>buildList(e.target
 
 function selectGroup(no){
   current=SG[no-1];
-  axesData=computeAxes(current.ops); selectedAxis=null;
+  axesData=computeAxes(current.ops); selectedAxis=null; selectedClass=null;
   planesData=computePlanes(current.ops); assignPlaneClasses(planesData,current.ops);
   centersData=computeCenters(current.ops); assignCenterClasses(centersData,current.ops);
   exampleMode=false;
