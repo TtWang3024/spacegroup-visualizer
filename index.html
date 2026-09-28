@@ -84,6 +84,9 @@
   .axtot{margin-top:12px;color:var(--accent2);font-size:12px}
   .axiso{margin-top:8px;padding:7px 9px;border-radius:7px;background:rgba(110,168,255,.10);border:1px solid rgba(110,168,255,.28);color:var(--text);font-size:11.5px;line-height:1.55}
   .axiso b{color:var(--accent);font-weight:600}
+  .axtint{display:inline-flex;gap:3px;vertical-align:middle}
+  .axown{white-space:nowrap;margin-right:4px}
+  .axtint i{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-style:normal;font-size:9.5px;font-weight:600}
   .exbox{margin:12px 0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px}
   .exk{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
   .exv{font-family:ui-monospace,Menlo,Consolas,monospace;margin-top:3px}
@@ -270,13 +273,124 @@ function labelInk(col){
   const ch=t=>{t=(t+1)%1; return t<1/6?p+(q-p)*6*t : t<1/2?q : t<2/3?p+(q-p)*(2/3-t)*6 : p;};
   return (0.2126*ch(h+1/3)+0.7152*ch(h)+0.0722*ch(h-1/3))>0.45?'#10151c':'#ffffff';
 }
-function shiftHue(col,deg){
-  const m=/hsl\(\s*([\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%/.exec(col||'');
-  return m?`hsl(${Math.round((+m[1]+deg)%360)},${m[2]}%,${m[3]}%)`:col;
+// ---------- isolating one class: which cell each drawn piece belongs to ----------
+// Each member of the isolated class owns exactly one home piece in this cell, drawn in the class
+// colour: its longest rod (or largest sheet) whose midpoint lies in the half-open cell [0,1)^3.
+// Every other piece drawn is part of a lattice translate of a member, so it belongs to the
+// neighbouring cell t and takes that cell's colour. That covers copies on the far faces and
+// edges, and also the second half of a diagonal element that wraps through opposite faces.
+function inHalfOpenCell(f){ return f.every(x=>x>-1e-6&&x<1-1e-6); }
+function _cmpT(a,b){ for(let i=0;i<3;i++) if(a[i]!==b[i]) return a[i]-b[i]; return 0; }
+// a piece lies on the translate by t for a whole family of t (differing by lattice vectors along
+// the element), so the shortest t names the owner, ties going to +a before +b before +c
+function _pickOwner(cands){
+  let best=null,bn=Infinity;
+  for(const t of cands){
+    const n=t[0]*t[0]+t[1]*t[1]+t[2]*t[2];
+    if(n<bn||(n===bn&&_cmpT(t,best)>0)){ bn=n; best=t; }
+  }
+  return best;
 }
-// while one class is isolated, the copy lying in this cell keeps the class colour and every lattice
-// repeat takes the opposite hue, so the two read apart at a glance
-const OPPOSITE=180;
+function _bestHome(list,tieKey){
+  let best=null;
+  for(const x of list){
+    if(!best||x.size>best.size+1e-9||(Math.abs(x.size-best.size)<=1e-9&&_cmpT(tieKey(x),tieKey(best))<0)) best=x;
+  }
+  return best;
+}
+function _polyArea(poly){
+  const c=[0,1,2].map(j=>poly.reduce((s,v)=>s+v[j],0)/poly.length);
+  const r=poly.map(v=>[v[0]-c[0],v[1]-c[1],v[2]-c[2]]);
+  let nrm=[0,0,0]; for(let i=1;i<r.length;i++){ const x=_cross(r[0],r[i]); if(_dot(x,x)>_dot(nrm,nrm)) nrm=x; }
+  const nl=Math.sqrt(_dot(nrm,nrm)); if(nl<1e-12) return 0;
+  const nh=nrm.map(x=>x/nl), e1=r[0].map(x=>x/Math.sqrt(_dot(r[0],r[0]))), e2=_cross(nh,e1);
+  const ord=r.map(v=>({v,a:Math.atan2(_dot(v,e2),_dot(v,e1))})).sort((x,y)=>x.a-y.a).map(o=>o.v);
+  let s=[0,0,0]; for(let i=0;i<ord.length;i++){ const x=_cross(ord[i],ord[(i+1)%ord.length]); s=[s[0]+x[0],s[1]+x[1],s[2]+x[2]]; }
+  return Math.sqrt(_dot(s,s))/2;
+}
+function cellLabel(t){
+  return t.map((x,i)=> x? (x>0?'+':'−')+(Math.abs(x)>1?Math.abs(x):'')+'abc'[i] : '').join('')||'this cell';
+}
+function isolationLayout(){
+  if(selectedAxis==null||selectedClass==null) return null;
+  const pieces=[]; let members=0, total=0, wrapped=false, classCol, noun;
+  if(selectedAxis==='CTR'){
+    if(!centersData) return null;
+    classCol=vividFor([...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b),selectedClass);
+    noun=['centre','centres']; total=centersData.length;
+    for(const o of centersData){
+      if(o.cls!==selectedClass) continue; members++;
+      for(let lx=0;lx<=1;lx++)for(let ly=0;ly<=1;ly++)for(let lz=0;lz<=1;lz++){
+        const f=[o.c[0]+lx,o.c[1]+ly,o.c[2]+lz]; if(f.some(x=>x>1+1e-6)) continue;
+        pieces.push({kind:'pt',f,t:[lx,ly,lz]});
+      }
+    }
+  } else if(selectedAxis.startsWith('PL')){
+    const g=(planesData||[]).find(x=>x.key===selectedAxis); if(!g) return null;
+    classCol=vividFor(g.classes||[],selectedClass);
+    noun=['plane','planes']; total=g.planes.length;
+    for(const p of g.planes){
+      if(p.cls!==selectedClass) continue; members++;
+      const ps=[];
+      for(let k=-1;k<=1;k++){
+        const poly=clipPlaneFrac(p.n,p.d0+k); if(!poly) continue;
+        const c=[0,1,2].map(j=>poly.reduce((s,v)=>s+v[j],0)/poly.length);
+        ps.push({poly,k,inCell:inHalfOpenCell(c),size:_polyArea(poly)});
+      }
+      const inCell=ps.filter(x=>x.inCell); if(inCell.length>1) wrapped=true;
+      const home=_bestHome(inCell.length?inCell:ps,x=>[x.k,0,0]);
+      for(const x of ps){
+        let t=[0,0,0];
+        if(x!==home){
+          const dk=x.k-home.k, c=[];
+          for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++)for(let l=-2;l<=2;l++) if(p.n[0]*i+p.n[1]*j+p.n[2]*l===dk) c.push([i,j,l]);
+          t=_pickOwner(c);
+        }
+        pieces.push({kind:'poly',poly:x.poly,t});
+      }
+    }
+  } else {
+    const g=(axesData||[]).find(x=>x.key===selectedAxis); if(!g) return null;
+    classCol=vividFor(g.classes||[],selectedClass);
+    noun=['axis','axes']; total=g.lines.length;
+    const d=_redInt(g.dir);
+    for(const a of g.lines){
+      if(a.cls!==selectedClass) continue; members++;
+      const ss=[], seen=new Set();
+      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++){
+        const seg=clipAxisFrac(a.dir,[a.p0[0]+lx,a.p0[1]+ly,a.p0[2]+lz]); if(!seg) continue;
+        const sk=seg[0].concat(seg[1]).map(x=>x.toFixed(3)).join(','); if(seen.has(sk)) continue; seen.add(sk);
+        const mid=[0,1,2].map(k=>(seg[0][k]+seg[1][k])/2);
+        ss.push({seg,shift:[lx,ly,lz],mid,inCell:inHalfOpenCell(mid),size:Math.hypot(seg[1][0]-seg[0][0],seg[1][1]-seg[0][1],seg[1][2]-seg[0][2])});
+      }
+      const inCell=ss.filter(x=>x.inCell); if(inCell.length>1) wrapped=true;
+      const home=_bestHome(inCell.length?inCell:ss,x=>x.mid);
+      for(const x of ss){
+        let t=[0,0,0];
+        if(x!==home){
+          const t0=[0,1,2].map(i=>x.shift[i]-home.shift[i]), c=[];
+          for(let k=-3;k<=3;k++) c.push(t0.map((v,i)=>v+k*d[i]));
+          t=_pickOwner(c);
+        }
+        pieces.push({kind:'seg',seg:x.seg,t});
+      }
+    }
+  }
+  // one colour per neighbouring cell, spread over the part of the wheel away from the class colour
+  const owners=new Map();
+  for(const p of pieces){
+    if(!p.t.some(x=>x)) continue;
+    const k=p.t.join(',');
+    if(!owners.has(k)) owners.set(k,{t:p.t,label:cellLabel(p.t),count:0});
+    owners.get(k).count++;
+  }
+  const nz=t=>t.filter(x=>x).length;
+  const list=[...owners.values()].sort((x,y)=> nz(x.t)-nz(y.t) || _cmpT(y.t,x.t));
+  const hm=/hsl\(\s*([\d.]+)/.exec(classCol), hc=hm?+hm[1]:48;
+  list.forEach((o,i)=>{ o.col=`hsl(${Math.round((hc+60+240*(i+0.5)/list.length)%360)},80%,60%)`; });
+  for(const p of pieces) p.col= p.t.some(x=>x) ? owners.get(p.t.join(',')).col : classCol;
+  return {pieces,members,total,wrapped,classCol,owners:list,noun};
+}
 let axClassColor={};
 function assignAxisClasses(groups,ops){
   const lines=[];
@@ -481,31 +595,23 @@ function renderAxes(M,center){
   for(const g of axesData){
     const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1;
     const pv=fracToCart(g.dir,M,[0,0,0]), periodLen=Math.hypot(pv[0],pv[1],pv[2]);
-    const iso=sel&&selectedClass!=null;
-    // collect every lattice-equivalent copy that touches the cell first, edges included: how many
-    // there are is how many cells share that axis, and the busiest one anchors the hue range
-    const items=[];
+    const draw=(seg,col)=>{
+      const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
+      if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
+    };
+    if(sel&&selectedClass!=null){                                    // isolating one class of this row
+      const lay=isolationLayout();
+      if(lay) for(const p of lay.pieces) draw(p.seg,new THREE.Color(p.col).getHex());
+      continue;
+    }
+    // every lattice-equivalent piece that touches the cell, edges and faces included
     for(const a of g.lines){
-      if(iso&&a.cls!==selectedClass) continue;                       // isolating one class of this row
-      // visit the in-cell copy first so it claims its key before any shifted copy that clips to the
-      // same segment, otherwise a translation along the axis direction would steal the canonical slot
-      const offs=[[0,0,0]];
-      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++) if(lx||ly||lz) offs.push([lx,ly,lz]);
-      const segs=[], drawn=new Set();
-      for(const [lx,ly,lz] of offs){
+      const col=new THREE.Color(sel?vividFor(g.classes||[],a.cls):(axClassColor[a.cls]||'#ffffff')).getHex();
+      const drawn=new Set();
+      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++){
         const seg=clipAxisFrac(a.dir,[a.p0[0]+lx,a.p0[1]+ly,a.p0[2]+lz]); if(!seg) continue;
         const sk=seg[0].concat(seg[1]).map(x=>x.toFixed(3)).join(','); if(drawn.has(sk)) continue; drawn.add(sk);
-        segs.push({seg,canon:!lx&&!ly&&!lz});
-      }
-      items.push({a,segs});
-    }
-    for(const {a,segs} of items){
-      const base=sel?vividFor(g.classes||[],a.cls):(axClassColor[a.cls]||'#ffffff');
-      const cols=[new THREE.Color(base).getHex(),new THREE.Color(iso?shiftHue(base,OPPOSITE):base).getHex()];
-      for(const {seg,canon} of segs){
-        const col=cols[canon?0:1];
-        const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
-        if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
+        draw(seg,col);
       }
     }
   }
@@ -564,18 +670,16 @@ function renderPlanes(M,center){
     if(anySel&&!sel) continue;
     const base=g.sym==='m'?0.18:0.12;
     const op= sel?0.4:base;
-    const iso=sel&&selectedClass!=null;
-    const items=[];
-    for(const p of g.planes){
-      if(iso&&p.cls!==selectedClass) continue;                       // isolating one class of this row
-      const polys=[];                             // lattice-equivalent copies at the cell faces too
-      for(let k=-1;k<=1;k++){ const poly=clipPlaneFrac(p.n,p.d0+k); if(poly) polys.push({poly,canon:k===0}); }
-      items.push({p,polys});
+    if(sel&&selectedClass!=null){                                    // isolating one class of this row
+      const lay=isolationLayout();
+      if(lay) for(const p of lay.pieces) addPlanePoly(p.poly,M,center,p.col,op,sel,g.sym!=='m',dash);
+      continue;
     }
-    for(const {p,polys} of items){
-      const base=sel?vividFor(g.classes||[],p.cls):(plClassColor[p.cls]||'#ff8ab0');
-      const alt=iso?shiftHue(base,OPPOSITE):base;
-      for(const {poly,canon} of polys) addPlanePoly(poly,M,center,canon?base:alt,op,sel,g.sym!=='m',dash);
+    for(const p of g.planes){
+      const col=sel?vividFor(g.classes||[],p.cls):(plClassColor[p.cls]||'#ff8ab0');
+      for(let k=-1;k<=1;k++){                     // lattice-equivalent copies at the cell faces too
+        const poly=clipPlaneFrac(p.n,p.d0+k); if(poly) addPlanePoly(poly,M,center,col,op,sel,g.sym!=='m',dash);
+      }
     }
   }
 }
@@ -585,20 +689,25 @@ function renderCenters(M,center){
   const op=(anySel&&!sel)?0.16:1;
   const r=(sel?0.034:0.022)*_cellScale(M);
   const ctCls=[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b);
-  const iso=sel&&selectedClass!=null;
+  // a strong emissive term washes distinct hues toward the same bright tint, so keep it low when selected
+  const mats={}, matFor=c=> mats[c]||(mats[c]=new THREE.MeshPhongMaterial({color:c,transparent:op<1,opacity:op,emissive:c,emissiveIntensity:sel?0.25:0.3,depthTest:!sel}));
+  const put=(f,c)=>{
+    const p=fracToCart(f,M,center);
+    const m=new THREE.Mesh(sphereGeo,matFor(c)); m.scale.setScalar(r); m.position.set(p[0],p[1],p[2]);
+    if(sel) m.renderOrder=999;
+    staticG.add(m);
+  };
+  if(sel&&selectedClass!=null){                                      // isolating one class of this row
+    const lay=isolationLayout();
+    if(lay) for(const p of lay.pieces) put(p.f,p.col);
+    return;
+  }
   for(const o of centersData){
-    if(iso&&o.cls!==selectedClass) continue;                        // isolating one class of this row
     const col=sel?vividFor(ctCls,o.cls):(ctClassColor[o.cls]||'#f0d060');
-    // a strong emissive term washes distinct hues toward the same bright tint, so keep it low when selected
-    const mk=c=>new THREE.MeshPhongMaterial({color:c,transparent:op<1,opacity:op,emissive:c,emissiveIntensity:sel?0.25:0.3,depthTest:!sel});
-    const mat=mk(col), matRepeat=iso?mk(shiftHue(col,OPPOSITE)):mat;
     for(let lx=0;lx<=1;lx++)for(let ly=0;ly<=1;ly++)for(let lz=0;lz<=1;lz++){
       const f=[o.c[0]+lx,o.c[1]+ly,o.c[2]+lz];
       if(f[0]>1+1e-6||f[1]>1+1e-6||f[2]>1+1e-6) continue;
-      const p=fracToCart(f,M,center);
-      const m=new THREE.Mesh(sphereGeo,(lx||ly||lz)?matRepeat:mat); m.scale.setScalar(r); m.position.set(p[0],p[1],p[2]);
-      if(sel) m.renderOrder=999;
-      staticG.add(m);
+      put(f,col);
     }
   }
 }
@@ -607,10 +716,9 @@ function rowClasses(key){
   const g=(axesData||[]).find(x=>x.key===key)||(planesData||[]).find(x=>x.key===key);
   return (g&&g.classes)||[];
 }
-// a row holding a single class has no sibling whose colour the repeats could be confused with, so
-// selecting the row isolates that class outright and the repeat colouring shows without a second
-// click on the dot. rows with two classes must stay dot-scoped: vividFor spaces two classes exactly
-// 180 apart, so one class's repeats would land on the other class's own colour
+// a row holding a single class loses nothing by isolating it, so selecting the row isolates that
+// class outright and the ownership colouring shows without a second click on the dot. Rows with
+// several classes stay row-scoped, so selecting one still shows every class; a dot isolates one
 function autoIsolate(key){ const cl=rowClasses(key); return cl.length===1?cl[0]:null; }
 function renderAxesPanel(){
   const el=document.getElementById('axes'); if(!el) return;
@@ -629,23 +737,22 @@ function renderAxesPanel(){
   const totC=centersData?centersData.length:0;
   // when one class is isolated, spell out what is on screen versus how many are genuinely distinct
   let isoNote='';
-  if(selectedClass!=null){
-    if(selectedAxis==='CTR'&&centersData){
-      const mem=centersData.filter(o=>o.cls===selectedClass);
-      const drawn=mem.reduce((n,o)=>n+Math.pow(2,o.c.filter(x=>Math.abs(x)<1e-6).length),0);
-      const rep=drawn-mem.length, s=k=>k===1?'':'s';
-      isoNote=`<div class="axiso">Showing one class: <b>${mem.length}</b> distinct centre${s(mem.length)}, drawn as <b>${drawn}</b> sphere${s(drawn)}${rep?` because ${rep} ${rep===1?'is a periodic repeat':'are periodic repeats'} on the cell boundary`:''}. Spheres in the class colour are the distinct centres; the opposite colour marks their periodic repeats on the cell boundary.</div>`;
-    } else {
-      const g=(axesData||[]).find(x=>x.key===selectedAxis)||(planesData||[]).find(x=>x.key===selectedAxis);
-      const items=g&&(g.lines||g.planes);
-      if(items) isoNote=`<div class="axiso">Showing one class: <b>${items.filter(e=>e.cls===selectedClass).length}</b> of the ${items.length} in this row. The class colour marks each distinct element; the opposite colour marks its periodic repeats on the cell boundary.</div>`;
-    }
+  const lay=isolationLayout();
+  if(lay){
+    const chip=(col,n)=>`<span class="axtint"><i style="background:${col};color:${labelInk(col)}">${n}</i></span>`;
+    const nn=k=>lay.noun[k===1?0:1];
+    const legend=lay.owners.map(o=>`<span class="axown">${chip(o.col,o.count)} ${o.label}</span>`).join(' ');
+    isoNote=`<div class="axiso">Showing one class: <b>${lay.members}</b> of the ${lay.total} in this row. `
+      +`This cell's own ${nn(lay.members)}: ${chip(lay.classCol,lay.members)}`
+      +(lay.owners.length?`. Copies that belong to neighbouring cells, one colour per cell: ${legend}`:'')+'.'
+      +(lay.wrapped?` A diagonal ${nn(1)} can wrap through opposite faces: its longest piece inside the cell is its own, and the other piece continues the ${nn(1)} of the neighbouring cell named by the shortest shift.`:'')
+      +`</div>`;
   }
   const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size
            +(planesData?new Set(planesData.flatMap(g=>g.classes||[])).size:0)
            +ctCls.length;
   el.innerHTML=`<h2>Symmetry elements</h2>
-    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies. Click a row to recolour its copies in contrasting hues, or a numbered dot to isolate one class and mark its periodic repeats in the opposite colour.</div>
+    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies. Click a row to recolour its copies in contrasting hues, or a numbered dot to isolate one class: this cell's own elements share the class colour, and copies belonging to neighbouring cells take one colour per cell.</div>
     <div class="axgrp">Rotation axes</div>${rows(rot)}
     <div class="axgrp">Screw axes</div>${rows(scr)}
     <div class="axgrp">Mirror &amp; glide planes</div>${prows}
