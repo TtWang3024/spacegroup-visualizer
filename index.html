@@ -281,6 +281,125 @@ function assignAxisClasses(groups,ops){
   for(const g of groups) g.classes=[...new Set(g.lines.map(a=>a.cls))].sort((x,y)=>x-y);
 }
 function axColor(o){return {2:'#7bb0ff',3:'#6ee7a8',4:'#ffb26b',6:'#c79bff'}[o]||'#cccccc';}
+
+// ---------- mirror/glide planes & inversion centres ----------
+function _cross(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+function _dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function _wrap24(x){let r=((x%1)+1)%1; r=Math.round(r*24)/24; if(Math.abs(r-1)<1e-6)r=0; return r;}
+// a glide vector and its negative describe the same plane: keep the lexicographically smaller
+function _glideCanon(s){
+  const w=s.map(_wrap24), f=w.map(x=> x===0?0:Math.round((1-x)*24)/24);
+  return (w.join(',')<=f.join(',')?w:f);
+}
+function _glideSym(s){
+  const k=s.map(x=>Math.round(x*24));
+  if(k.every(x=>x===0)) return 'm';
+  if(k[0]===12&&!k[1]&&!k[2]) return 'a';
+  if(!k[0]&&k[1]===12&&!k[2]) return 'b';
+  if(!k[0]&&!k[1]&&k[2]===12) return 'c';
+  if(k.every(x=>x===0||x===12)) return 'n';
+  if(k.every(x=>x===0||x===6||x===18)) return 'd';
+  return 'g';
+}
+function analyzeReflection(R,t){
+  // rows of (I−R) are all parallel to the plane's Miller normal h
+  const A=[1-R[0],-R[1],-R[2],-R[3],1-R[4],-R[5],-R[6],-R[7],1-R[8]];
+  let h=[0,0,0],hb=0;
+  for(let r=0;r<3;r++){const v=[A[r*3],A[r*3+1],A[r*3+2]];const nn=_dot(v,v);if(nn>hb){hb=nn;h=v;}}
+  if(!hb) return null;
+  h=_redInt(h);
+  // two independent lattice directions lying in the plane (h·u = h·w = 0)
+  let u=[0,0,0],ub=0;
+  for(const e of [[1,0,0],[0,1,0],[0,0,1]]){const c=_cross(h,e);const nn=_dot(c,c);if(nn>ub){ub=nn;u=c;}}
+  u=_redInt(u); const w=_redInt(_cross(h,u));
+  // intrinsic (glide) translation = in-plane part of t
+  const Rt=_mv(R,t), s=[(t[0]+Rt[0])/2,(t[1]+Rt[1])/2,(t[2]+Rt[2])/2];
+  // a point on the plane: least squares for (I−R)p0 = t − s
+  const b=[t[0]-s[0],t[1]-s[1],t[2]-s[2]];
+  const AT=_T(A), N=_mul(AT,A);
+  const ul=Math.sqrt(_dot(u,u)), wl=Math.sqrt(_dot(w,w));
+  for(let i=0;i<3;i++)for(let j=0;j<3;j++) N[i*3+j]+=u[i]*u[j]/(ul*ul)+w[i]*w[j]/(wl*wl);
+  const p0=_mv(_inv(N),_mv(AT,b));
+  const d0=_wrap24(_dot(h,p0));
+  const sc=_glideCanon(s);
+  return {n:h,d0,p0,u,w,s:sc,sym:_glideSym(sc)};
+}
+function computePlanes(ops){
+  const seen=new Map(), L=[-1,0,1,2];
+  for(const op of ops){
+    const R=op.slice(0,9);
+    if(Math.round(_det(R))!==-1 || R[0]+R[4]+R[8]!==1) continue;   // reflections only
+    const t0=[op[9]/24,op[10]/24,op[11]/24];
+    for(const lx of L)for(const ly of L)for(const lz of L){
+      const pl=analyzeReflection(R,[t0[0]+lx,t0[1]+ly,t0[2]+lz]); if(!pl) continue;
+      const key=pl.n.join(',')+'|'+pl.d0.toFixed(3)+'|'+pl.s.join(',');
+      if(!seen.has(key)) seen.set(key,pl);
+    }}
+  const groups=new Map();
+  for(const p of seen.values()){
+    const gk='PL'+p.sym+'|'+p.n.join(',');
+    if(!groups.has(gk)) groups.set(gk,{key:gk,sym:p.sym,n:p.n,planes:[]});
+    groups.get(gk).planes.push(p);
+  }
+  return [...groups.values()].sort((x,y)=> x.sym===y.sym ? (x.n.join()<y.n.join()?-1:1) : (x.sym==='m'?-1: y.sym==='m'?1: (x.sym<y.sym?-1:1)));
+}
+function computeCenters(ops){
+  const pts=new Map(), L=[-1,0,1,2];
+  for(const op of ops){
+    const R=op.slice(0,9);
+    if(R[0]+R[4]+R[8]!==-3) continue;                              // pure inversion: R = −I
+    const t0=[op[9]/24,op[10]/24,op[11]/24];
+    for(const lx of L)for(const ly of L)for(const lz of L){
+      const c=[(t0[0]+lx)/2,(t0[1]+ly)/2,(t0[2]+lz)/2].map(_wrap24);
+      pts.set(c.map(x=>x.toFixed(3)).join(','),{c});
+    }}
+  return [...pts.values()];
+}
+let plClassColor={}, ctClassColor={};
+function assignPlaneClasses(groups,ops){
+  const ps=[]; for(const g of groups) for(const p of g.planes) ps.push(p);
+  const keyOf=(n,d,s)=>n.join(',')+'|'+d.toFixed(3)+'|'+s.join(',');
+  const idx=new Map(); ps.forEach((p,i)=>idx.set(keyOf(p.n,p.d0,p.s),i));
+  const par=ps.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i]));
+  for(let i=0;i<ps.length;i++){
+    const p=ps[i];
+    for(const op of ops){
+      const R=op.slice(0,9), Ri=_inv(R).map(x=>Math.round(x));
+      // Miller indices transform as a row vector: h' = h·R⁻¹
+      const h2=[p.n[0]*Ri[0]+p.n[1]*Ri[3]+p.n[2]*Ri[6], p.n[0]*Ri[1]+p.n[1]*Ri[4]+p.n[2]*Ri[7], p.n[0]*Ri[2]+p.n[1]*Ri[5]+p.n[2]*Ri[8]];
+      const hr=_redInt(h2);
+      const q=_mv(R,p.p0).map((x,k)=>x+op[9+k]/24);
+      let d2=_dot(hr,q); d2=_wrap24(d2);
+      const s2=_glideCanon(_mv(R,p.s));
+      const j=idx.get(keyOf(hr,d2,s2));
+      if(j!==undefined){const a=find(i),bb=find(j); if(a!==bb) par[a]=bb;}
+    }
+  }
+  const clsOf=new Map(); let n=0;
+  ps.forEach((p,i)=>{const r=find(i); if(!clsOf.has(r)) clsOf.set(r,n++); p.cls=clsOf.get(r);});
+  plClassColor={};
+  const all=[...new Set(ps.map(p=>p.cls))];
+  all.forEach((c,i)=>{const l= all.length===1?70 : 45+33*i/(all.length-1); plClassColor[c]=`hsl(330,90%,${Math.round(l)}%)`;});
+  for(const g of groups) g.classes=[...new Set(g.planes.map(p=>p.cls))].sort((a,b)=>a-b);
+}
+function assignCenterClasses(cs,ops){
+  const key=c=>c.map(x=>x.toFixed(3)).join(',');
+  const idx=new Map(); cs.forEach((o,i)=>idx.set(key(o.c),i));
+  const par=cs.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i]));
+  for(let i=0;i<cs.length;i++){
+    for(const op of ops){
+      const R=op.slice(0,9);
+      const q=_mv(R,cs[i].c).map((x,k)=>_wrap24(x+op[9+k]/24));
+      const j=idx.get(key(q));
+      if(j!==undefined){const a=find(i),b=find(j); if(a!==b) par[a]=b;}
+    }
+  }
+  const clsOf=new Map(); let n=0;
+  cs.forEach((o,i)=>{const r=find(i); if(!clsOf.has(r)) clsOf.set(r,n++); o.cls=clsOf.get(r);});
+  ctClassColor={};
+  const all=[...new Set(cs.map(o=>o.cls))];
+  all.forEach((c,i)=>{const l= all.length===1?68 : 48+30*i/(all.length-1); ctClassColor[c]=`hsl(48,95%,${Math.round(l)}%)`;});
+}
 function dirStr(d){return '['+d.map(x=> x<0?(-x)+'̅':''+x).join('')+']';}
 // ---------- axis rendering ----------
 function clipAxisFrac(dir,p0){
@@ -348,19 +467,108 @@ function renderAxes(M,center){
     }
   }
 }
+// clip the plane h·x = d against the unit cube, in fractional coordinates
+function clipPlaneFrac(h,d){
+  const V=[[0,0,0],[1,0,0],[0,1,0],[0,0,1],[1,1,0],[1,0,1],[0,1,1],[1,1,1]];
+  const E=[[0,1],[0,2],[0,3],[1,4],[1,5],[2,4],[2,6],[3,5],[3,6],[4,7],[5,7],[6,7]];
+  const pts=[];
+  for(const v of V){ if(Math.abs(_dot(h,v)-d)<1e-9) pts.push(v); }
+  for(const [a,b] of E){
+    const fa=_dot(h,V[a])-d, fb=_dot(h,V[b])-d;
+    if(fa*fb<-1e-12){
+      const t=fa/(fa-fb);
+      pts.push([V[a][0]+t*(V[b][0]-V[a][0]),V[a][1]+t*(V[b][1]-V[a][1]),V[a][2]+t*(V[b][2]-V[a][2])]);
+    }
+  }
+  const uniq=[];
+  for(const p of pts){ if(!uniq.some(q=>Math.abs(q[0]-p[0])+Math.abs(q[1]-p[1])+Math.abs(q[2]-p[2])<1e-6)) uniq.push(p); }
+  return uniq.length>=3?uniq:null;
+}
+function addPlanePoly(polyF,M,center,color,op,top,glide,dash){
+  const verts=polyF.map(f=>fracToCart(f,M,center));
+  const c0=verts.reduce((a,v)=>[a[0]+v[0]/verts.length,a[1]+v[1]/verts.length,a[2]+v[2]/verts.length],[0,0,0]);
+  const v0=[verts[0][0]-c0[0],verts[0][1]-c0[1],verts[0][2]-c0[2]];
+  let nn=[0,0,0];
+  for(let i=1;i<verts.length;i++){
+    const vi=[verts[i][0]-c0[0],verts[i][1]-c0[1],verts[i][2]-c0[2]];
+    const cr=_cross(v0,vi); if(_dot(cr,cr)>_dot(nn,nn)) nn=cr;
+  }
+  const nl=Math.sqrt(_dot(nn,nn)); if(nl<1e-9) return;
+  const nh=nn.map(x=>x/nl), e1=v0.map(x=>x/Math.sqrt(_dot(v0,v0))), e2=_cross(nh,e1);
+  const ord=verts.map(v=>{const dd=[v[0]-c0[0],v[1]-c0[1],v[2]-c0[2]];return {v,a:Math.atan2(_dot(dd,e2),_dot(dd,e1))};})
+                 .sort((x,y)=>x.a-y.a).map(o=>o.v);
+  const pos=[];
+  for(let i=1;i<ord.length-1;i++) pos.push(...ord[0],...ord[i],...ord[i+1]);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  const mat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:op,side:THREE.DoubleSide,depthWrite:false});
+  const mesh=new THREE.Mesh(geo,mat); if(top) mesh.renderOrder=998;
+  staticG.add(mesh);
+  const lp=ord.map(v=>new THREE.Vector3(v[0],v[1],v[2])); lp.push(lp[0].clone());
+  const lg=new THREE.BufferGeometry().setFromPoints(lp);
+  const lmat= glide? new THREE.LineDashedMaterial({color,dashSize:dash,gapSize:dash*0.7,transparent:true,opacity:Math.min(1,op*3.4)})
+                   : new THREE.LineBasicMaterial({color,transparent:true,opacity:Math.min(1,op*3.4)});
+  const line=new THREE.Line(lg,lmat); if(glide) line.computeLineDistances(); if(top) line.renderOrder=998;
+  staticG.add(line);
+}
+function _cellScale(M){return Math.cbrt(Math.abs(_det([M[0][0],M[0][1],M[0][2],M[1][0],M[1][1],M[1][2],M[2][0],M[2][1],M[2][2]])));}
+function renderPlanes(M,center){
+  if(!showAxes||!planesData) return;
+  const anySel=selectedAxis!=null, dash=0.045*_cellScale(M);
+  for(const g of planesData){
+    const sel=selectedAxis===g.key;
+    const base=g.sym==='m'?0.18:0.12;
+    const op= sel?0.4 : (anySel?0.05:base);
+    for(const p of g.planes){
+      const col=plClassColor[p.cls]||'#ff8ab0';
+      for(let k=-1;k<=1;k++){                     // lattice-equivalent copies at the cell faces too
+        const poly=clipPlaneFrac(p.n,p.d0+k); if(!poly) continue;
+        addPlanePoly(poly,M,center,col,op,sel,g.sym!=='m',dash);
+      }
+    }
+  }
+}
+function renderCenters(M,center){
+  if(!showAxes||!centersData||!centersData.length) return;
+  const anySel=selectedAxis!=null, sel=selectedAxis==='CTR';
+  const op=(anySel&&!sel)?0.16:1;
+  const r=(sel?0.034:0.022)*_cellScale(M);
+  for(const o of centersData){
+    const col=ctClassColor[o.cls]||'#f0d060';
+    const mat=new THREE.MeshPhongMaterial({color:col,transparent:op<1,opacity:op,emissive:col,emissiveIntensity:sel?0.6:0.3,depthTest:!sel});
+    for(let lx=0;lx<=1;lx++)for(let ly=0;ly<=1;ly++)for(let lz=0;lz<=1;lz++){
+      const f=[o.c[0]+lx,o.c[1]+ly,o.c[2]+lz];
+      if(f[0]>1+1e-6||f[1]>1+1e-6||f[2]>1+1e-6) continue;
+      const p=fracToCart(f,M,center);
+      const m=new THREE.Mesh(sphereGeo,mat); m.scale.setScalar(r); m.position.set(p[0],p[1],p[2]);
+      if(sel) m.renderOrder=999;
+      staticG.add(m);
+    }
+  }
+}
 function renderAxesPanel(){
   const el=document.getElementById('axes'); if(!el) return;
   if(!axesData){el.innerHTML='';return;}
   const playing=anim?anim.g.key:null;
   const rows=arr=>arr.length?arr.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:${axColor(g.order)}">${g.sym}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axcl">${(g.classes||[]).map(c=>`<i style="background:${axClassColor[c]}"></i>`).join('')}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const rot=axesData.filter(g=>!g.screw), scr=axesData.filter(g=>g.screw);
+  const millerStr=n=>'('+n.map(x=> x<0?(-x)+'̅':''+x).join('')+')';
+  const prows=(planesData&&planesData.length)?planesData.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:#ff8ab0">${g.sym}</span><span class="axdir">${millerStr(g.n)}</span><span class="axcl">${(g.classes||[]).map(c=>`<i style="background:${plClassColor[c]}"></i>`).join('')}</span><span class="axn">×${g.planes.length}</span></div>`).join(''):'<div class="axnone">none</div>';
+  const ctCls=centersData?[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b):[];
+  const crow=(centersData&&centersData.length)?`<div class="ax ${selectedAxis==='CTR'?'sel':''}" data-k="CTR"><span class="axplay" data-k="CTR" title="animate this operation">${playing==='CTR'?'⏸':'▶'}</span><span class="axsym" style="color:#f0d060;text-decoration:overline">1</span><span class="axdir">&nbsp;</span><span class="axcl">${ctCls.map(c=>`<i style="background:${ctClassColor[c]}"></i>`).join('')}</span><span class="axn">×${centersData.length}</span></div>`:'<div class="axnone">none</div>';
   const tot=axesData.reduce((n,g)=>n+g.lines.length,0);
-  const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size;
-  el.innerHTML=`<h2>Symmetry axes</h2>
-    <div class="axhint">▶ animates the operation about its axis (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own). Hue = rotation order; shades within a hue separate the symmetry-inequivalent axes.</div>
+  const totP=planesData?planesData.reduce((n,g)=>n+g.planes.length,0):0;
+  const totC=centersData?centersData.length:0;
+  const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size
+           +(planesData?new Set(planesData.flatMap(g=>g.classes||[])).size:0)
+           +ctCls.length;
+  el.innerHTML=`<h2>Symmetry elements</h2>
+    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies.</div>
     <div class="axgrp">Rotation axes</div>${rows(rot)}
     <div class="axgrp">Screw axes</div>${rows(scr)}
-    <div class="axtot">${tot} axes in this cell · ${axesData.length} types · ${uniq} symmetry-unique</div>`;
+    <div class="axgrp">Mirror &amp; glide planes</div>${prows}
+    <div class="axgrp">Inversion centres</div>${crow}
+    <div class="axtot">${tot} axes · ${totP} planes · ${totC} centres in this cell · ${uniq} symmetry-unique elements</div>`;
   el.querySelectorAll('.ax').forEach(r=>r.onclick=(ev)=>{
     if(ev.target.classList.contains('axplay')) return;
     selectedAxis = selectedAxis===r.dataset.k ? null : r.dataset.k;
@@ -369,10 +577,14 @@ function renderAxesPanel(){
     renderAxesPanel(); rebuild();
   });
   el.querySelectorAll('.axplay').forEach(p=>p.onclick=(ev)=>{ ev.stopPropagation();
-    const key=p.dataset.k, g=axesData.find(x=>x.key===key);
+    const key=p.dataset.k;
     if(anim&&anim.g.key===key){ stopAnim(); renderAxesPanel(); return; }
     selectedAxis=key; showAxes=true; const tb=document.getElementById('tAxes'); if(tb) tb.classList.add('on');
-    rebuild(); animateAxis(g); renderAxesPanel();
+    rebuild();
+    if(key==='CTR') animateCenter();
+    else if(key.startsWith('PL')) animatePlane(planesData.find(x=>x.key===key));
+    else animateAxis(axesData.find(x=>x.key===key));
+    renderAxesPanel();
   });
 }
 
@@ -391,7 +603,7 @@ const content=new THREE.Group(), staticG=new THREE.Group(); model.add(content); 
 let anim=null;
 let mode='3d', autorot=true, fitR=1.3;
 let showCell=true, showPack=false;
-let showAxes=false, axesData=null, selectedAxis=null;
+let showAxes=false, axesData=null, planesData=null, centersData=null, selectedAxis=null;
 let exampleMode=false;
 
 const PALETTE=['#6ea8ff','#ff8a3d','#8ce0c0','#e06ec0','#f0d060','#7de0ff','#b088ff','#ff6e6e'];
@@ -451,6 +663,8 @@ function rebuild(){
     for(const c of corners) maxR=Math.max(maxR,Math.hypot(c[0],c[1],c[2]));
   }
   renderAxes(M,center);
+  renderPlanes(M,center);
+  renderCenters(M,center);
   fitR=maxR*1.18;
   setView(mode); resize();
   renderPanel(total);
@@ -514,16 +728,68 @@ function animateAxis(g){
         n:g.order, m:g.m||0, repLen, period:2600, t0:performance.now()};
   content.matrixAutoUpdate=false;
 }
+function animatePlane(g){
+  if(!g) return;
+  const M=curCell().M;
+  const center=[(M[0][0]+M[1][0]+M[2][0])/2,(M[0][1]+M[1][1]+M[2][1])/2,(M[0][2]+M[1][2]+M[2][2])/2];
+  const dc=v=>[v[0]*M[0][0]+v[1]*M[1][0]+v[2]*M[2][0], v[0]*M[0][1]+v[1]*M[1][1]+v[2]*M[2][1], v[0]*M[0][2]+v[1]*M[1][2]+v[2]*M[2][2]];
+  let best=null,bd=1e9;
+  for(const p of g.planes){
+    const poly=clipPlaneFrac(p.n,p.d0); if(!poly) continue;
+    const vs=poly.map(f=>fracToCart(f,M,center));
+    const c0=vs.reduce((a,v)=>[a[0]+v[0]/vs.length,a[1]+v[1]/vs.length,a[2]+v[2]/vs.length],[0,0,0]);
+    const d=Math.hypot(c0[0],c0[1],c0[2]);
+    if(d<bd){bd=d;best={p,c0};}
+  }
+  if(!best) return;
+  const p=best.p, Uc=dc(p.u), Wc=dc(p.w);
+  let Nc=_cross(Uc,Wc); const nl=Math.hypot(Nc[0],Nc[1],Nc[2]); Nc=Nc.map(x=>x/nl);
+  const sf=p.s.map(x=> x>0.5? x-1 : x);          // shortest glide representative
+  const Gc=dc(sf);
+  anim={type:'plane', g, N:new THREE.Vector3(Nc[0],Nc[1],Nc[2]),
+        P0:new THREE.Vector3(best.c0[0],best.c0[1],best.c0[2]),
+        G:new THREE.Vector3(Gc[0],Gc[1],Gc[2]), period:2600, t0:performance.now()};
+  content.matrixAutoUpdate=false;
+}
+function animateCenter(){
+  if(!centersData||!centersData.length) return;
+  const M=curCell().M;
+  const center=[(M[0][0]+M[1][0]+M[2][0])/2,(M[0][1]+M[1][1]+M[2][1])/2,(M[0][2]+M[1][2]+M[2][2])/2];
+  let best=null,bd=1e9;
+  for(const o of centersData){
+    const p=fracToCart(o.c,M,center); const d=Math.hypot(p[0],p[1],p[2]);
+    if(d<bd){bd=d;best=p;}
+  }
+  anim={type:'inv', g:{key:'CTR'}, P0:new THREE.Vector3(best[0],best[1],best[2]), period:2600, t0:performance.now()};
+  content.matrixAutoUpdate=false;
+}
 function updateAnim(){
   const phase=(((performance.now()-anim.t0)/anim.period)%1);
   const e = phase<0.78 ? easeIO(phase/0.78) : 1;
-  const angle=(2*Math.PI/anim.n)*e, adv=(anim.m/anim.n)*anim.repLen*e;
-  const q=new THREE.Quaternion().setFromAxisAngle(anim.D,angle);
-  const R=new THREE.Matrix4().makeRotationFromQuaternion(q);
   const Tn=new THREE.Matrix4().makeTranslation(-anim.P0.x,-anim.P0.y,-anim.P0.z);
   const Tp=new THREE.Matrix4().makeTranslation(anim.P0.x,anim.P0.y,anim.P0.z);
-  const S=new THREE.Matrix4().makeTranslation(anim.D.x*adv,anim.D.y*adv,anim.D.z*adv);
-  content.matrix.identity(); content.matrix.multiply(S).multiply(Tp).multiply(R).multiply(Tn);
+  if(anim.type==='plane'){
+    // interpolate I − k·n̂n̂ᵀ from identity (k=0) to the reflection (k=2)
+    let k=2*e; if(Math.abs(k-1)<1e-4) k=1-1e-4;   // dodge the exactly-singular instant
+    const n=anim.N;
+    const F=new THREE.Matrix4().set(
+      1-k*n.x*n.x, -k*n.x*n.y, -k*n.x*n.z, 0,
+      -k*n.y*n.x, 1-k*n.y*n.y, -k*n.y*n.z, 0,
+      -k*n.z*n.x, -k*n.z*n.y, 1-k*n.z*n.z, 0,
+      0,0,0,1);
+    const S=new THREE.Matrix4().makeTranslation(anim.G.x*e,anim.G.y*e,anim.G.z*e);
+    content.matrix.identity(); content.matrix.multiply(S).multiply(Tp).multiply(F).multiply(Tn);
+  } else if(anim.type==='inv'){
+    let s=1-2*e; if(Math.abs(s)<1e-4) s=1e-4;     // dodge the exactly-singular instant
+    const F=new THREE.Matrix4().makeScale(s,s,s);
+    content.matrix.identity(); content.matrix.multiply(Tp).multiply(F).multiply(Tn);
+  } else {
+    const angle=(2*Math.PI/anim.n)*e, adv=(anim.m/anim.n)*anim.repLen*e;
+    const q=new THREE.Quaternion().setFromAxisAngle(anim.D,angle);
+    const R=new THREE.Matrix4().makeRotationFromQuaternion(q);
+    const S=new THREE.Matrix4().makeTranslation(anim.D.x*adv,anim.D.y*adv,anim.D.z*adv);
+    content.matrix.identity(); content.matrix.multiply(S).multiply(Tp).multiply(R).multiply(Tn);
+  }
   content.matrixWorldNeedsUpdate=true;
 }
 
@@ -554,6 +820,8 @@ document.getElementById('search').addEventListener('input',e=>buildList(e.target
 function selectGroup(no){
   current=SG[no-1];
   axesData=computeAxes(current.ops); selectedAxis=null;
+  planesData=computePlanes(current.ops); assignPlaneClasses(planesData,current.ops);
+  centersData=computeCenters(current.ops); assignCenterClasses(centersData,current.ops);
   exampleMode=false;
   const tb=document.getElementById('tEx'); if(tb){ tb.classList.remove('on'); tb.style.opacity=EX[no]?1:0.4; }
   buildList(document.getElementById('search').value);
