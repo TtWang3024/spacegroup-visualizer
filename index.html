@@ -256,24 +256,43 @@ function addRod(a,b,rad,color,op,top){
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.clone().normalize());
   staticG.add(mesh);
 }
-function addDashed(a,b,rad,color,op,top){
+// A screw axis is drawn as a threaded rod: a thin core with a helix wound round it.
+// One full turn of the helix advances by the screw's intrinsic translation, so the
+// pitch and the handedness are the operation's own, so 4_1 and 4_3 twist opposite ways.
+function addScrewHelix(a,b,rad,color,op,top,order,m,periodLen){
   const A=new THREE.Vector3(a[0],a[1],a[2]), B=new THREE.Vector3(b[0],b[1],b[2]);
-  const d=new THREE.Vector3().subVectors(B,A), len=d.length(), u=d.clone().normalize(), seg=0.085;
-  const n=Math.max(2,Math.ceil(len/seg));
-  for(let i=0;i<n;i+=2){ const s=Math.min(i*seg,len), e=Math.min((i+1)*seg,len); if(e<=s) break;
-    const p1=A.clone().addScaledVector(u,s), p2=A.clone().addScaledVector(u,e);
-    addRod([p1.x,p1.y,p1.z],[p2.x,p2.y,p2.z],rad,color,op,top);
+  const d=new THREE.Vector3().subVectors(B,A), len=d.length(); if(len<1e-6) return;
+  const u=d.clone().normalize();
+  addRod(a,b,rad,color,op,top);
+  let tau=m/order; if(tau>0.5) tau-=1;            // shortest equivalent screw step
+  const rise=Math.abs(tau)*periodLen;
+  if(!(rise>1e-6)) return;
+  const handed=tau<0?-1:1, turns=len/rise;
+  const helixR=rad*1.9, tubeR=rad*0.8;
+  const h=Math.abs(u.x)<0.9? new THREE.Vector3(1,0,0) : new THREE.Vector3(0,1,0);
+  const e1=new THREE.Vector3().crossVectors(h,u).normalize(), e2=new THREE.Vector3().crossVectors(u,e1);
+  const N=Math.min(600,Math.max(16,Math.ceil(turns*16))), pts=[];
+  for(let i=0;i<=N;i++){
+    const t=i/N, ang=handed*2*Math.PI*turns*t;
+    pts.push(A.clone().addScaledVector(u,len*t)
+              .addScaledVector(e1,helixR*Math.cos(ang))
+              .addScaledVector(e2,helixR*Math.sin(ang)));
   }
+  const geo=new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),N,tubeR,6,false);
+  const mat=new THREE.MeshPhongMaterial({color,transparent:op<1,opacity:op,emissive:color,emissiveIntensity:top?0.55:0.28,depthTest:!top});
+  const mesh=new THREE.Mesh(geo,mat); if(top) mesh.renderOrder=999;
+  staticG.add(mesh);
 }
 function renderAxes(M,center){
   if(!showAxes||!axesData) return;
   const COL={2:0x7bb0ff,3:0x6ee7a8,4:0xffb26b,6:0xc79bff}, anySel=selectedAxis!=null;
   for(const g of axesData){
     const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1, col=COL[g.order]||0xffffff;
+    const pv=fracToCart(g.dir,M,[0,0,0]), periodLen=Math.hypot(pv[0],pv[1],pv[2]);
     for(const a of g.lines){
       const seg=clipAxisFrac(a.dir,a.p0); if(!seg) continue;
       const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
-      if(g.screw) addDashed(p1,p2,rad,col,op,sel); else addRod(p1,p2,rad,col,op,sel);
+      if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
     }
   }
 }
@@ -285,7 +304,7 @@ function renderAxesPanel(){
   const rot=axesData.filter(g=>!g.screw), scr=axesData.filter(g=>g.screw);
   const tot=axesData.reduce((n,g)=>n+g.lines.length,0);
   el.innerHTML=`<h2>Symmetry axes</h2>
-    <div class="axhint">▶ animates the operation about its axis (atoms map onto the crystal). Solid = rotation, dashed = screw.</div>
+    <div class="axhint">▶ animates the operation about its axis (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own).</div>
     <div class="axgrp">Rotation axes</div>${rows(rot)}
     <div class="axgrp">Screw axes</div>${rows(scr)}
     <div class="axtot">${tot} axes in this cell · ${axesData.length} types</div>`;
