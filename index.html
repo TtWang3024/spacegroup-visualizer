@@ -350,7 +350,7 @@ function isolationLayout(){
       }
     }
   } else {
-    const g=(axesData||[]).find(x=>x.key===selectedAxis); if(!g) return null;
+    const g=(axesData||[]).find(x=>x.key===selectedAxis)||(rotoData||[]).find(x=>x.key===selectedAxis); if(!g) return null;
     classCol=vividFor(g.classes||[],selectedClass);
     noun=['axis','axes']; total=g.lines.length;
     const d=_redInt(g.dir);
@@ -372,7 +372,7 @@ function isolationLayout(){
           for(let k=-3;k<=3;k++) c.push(t0.map((v,i)=>v+k*d[i]));
           t=_pickOwner(c);
         }
-        pieces.push({kind:'seg',seg:x.seg,t});
+        pieces.push({kind:'seg',seg:x.seg,t,line:a});
       }
     }
   }
@@ -540,6 +540,68 @@ function assignCenterClasses(cs,ops){
   ctClassColor={};
   const all=[...new Set(cs.map(o=>o.cls))];
   all.forEach((c,i)=>{const l= all.length===1?68 : 48+30*i/(all.length-1); ctClassColor[c]=`hsl(48,95%,${Math.round(l)}%)`;});
+}
+
+// ---------- rotoinversion axes (3̄, 4̄, 6̄) ----------
+// A rotoinversion rotates by 360/n about an axis and inverts through a point on it. Its proper part
+// -R is that rotation, and it fixes exactly one point, the inversion point, which on its own need not
+// be a centre of symmetry of the crystal. Solving for that point halves (4̄, 3̄) or sixths (6̄) the
+// translations, so positions are rounded on a finer grid than the 24ths used elsewhere
+function _wrapFine(x){ let r=((x%1)+1)%1; r=Math.round(r*1440)/1440; if(r>=1) r=0; return r; }
+function _lineKeyFine(dir,p){
+  const d=_redInt(dir), ab=d.map(Math.abs), a=ab.indexOf(Math.max(ab[0],ab[1],ab[2])), lam=-p[a]/d[a];
+  return d.join(',')+'|'+[0,1,2].map(i=> i===a?0:_wrapFine(p[i]+lam*d[i])).map(x=>x.toFixed(4)).join(',');
+}
+function analyzeRotoinversion(R,t){
+  if(Math.round(_det(R))!==-1) return null;
+  const order={'-1':4,'0':3,'-2':6}[String(R[0]+R[4]+R[8])]; if(!order) return null;
+  const w=[R[5]-R[7],R[6]-R[2],R[1]-R[3]];                  // rotation-sense vector of -R
+  const A=[1-R[0],-R[1],-R[2],-R[3],1-R[4],-R[5],-R[6],-R[7],1-R[8]];
+  return {order,dir:_redInt(w),ip:_mv(_inv(A),t).map(_wrapFine)};
+}
+function computeRoto(ops){
+  const lines=new Map(), L=[-1,0,1,2];
+  for(const op of ops){
+    const R=op.slice(0,9), t0=[op[9]/24,op[10]/24,op[11]/24];
+    if(!analyzeRotoinversion(R,t0)) continue;
+    for(const lx of L)for(const ly of L)for(const lz of L){
+      const r=analyzeRotoinversion(R,[t0[0]+lx,t0[1]+ly,t0[2]+lz]);
+      const key=r.order+'|'+_lineKeyFine(r.dir,r.ip);
+      if(!lines.has(key)){
+        const d=r.dir, ab=d.map(Math.abs), a=ab.indexOf(Math.max(ab[0],ab[1],ab[2])), lam=-r.ip[a]/d[a];
+        lines.set(key,{order:r.order,dir:d,p0:[0,1,2].map(i=> i===a?0:_wrapFine(r.ip[i]+lam*d[i])),ipm:new Map()});
+      }
+      lines.get(key).ipm.set(r.ip.map(x=>x.toFixed(4)).join(','),r.ip);
+    }
+  }
+  const groups=new Map();
+  for(const l of lines.values()){
+    const gk='RI'+l.order+'|'+l.dir.join(',');
+    if(!groups.has(gk)) groups.set(gk,{key:gk,order:l.order,dir:l.dir,lines:[]});
+    groups.get(gk).lines.push({dir:l.dir,p0:l.p0,ips:[...l.ipm.values()]});
+  }
+  return [...groups.values()].sort((x,y)=> y.order-x.order || (x.dir.join()<y.dir.join()?-1:1));
+}
+let riClassColor={};
+function assignRotoClasses(groups,ops){
+  const lines=[]; for(const g of groups) for(const a of g.lines){ a._o=g.order; lines.push(a); }
+  const key=(o,d,p)=>o+'|'+_lineKeyFine(d,p);
+  const idx=new Map(); lines.forEach((a,i)=>idx.set(key(a._o,a.dir,a.p0),i));
+  const par=lines.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i]));
+  for(let i=0;i<lines.length;i++){
+    const a=lines[i];
+    for(const op of ops){
+      const R=op.slice(0,9);
+      const j=idx.get(key(a._o,_mv(R,a.dir),_mv(R,a.p0).map((x,k)=>x+op[9+k]/24)));
+      if(j!==undefined){ const ri=find(i), rj=find(j); if(ri!==rj) par[ri]=rj; }
+    }
+  }
+  const clsOf=new Map(); let n=0;
+  lines.forEach((a,i)=>{ const r=find(i); if(!clsOf.has(r)) clsOf.set(r,n++); a.cls=clsOf.get(r); delete a._o; });
+  riClassColor={};
+  const all=[...new Set(lines.map(a=>a.cls))];
+  all.forEach((c,i)=>{const l= all.length===1?64 : 42+34*i/(all.length-1); riClassColor[c]=`hsl(95,70%,${Math.round(l)}%)`;});
+  for(const g of groups) g.classes=[...new Set(g.lines.map(a=>a.cls))].sort((x,y)=>x-y);
 }
 function dirStr(d){return '['+d.map(x=> x<0?(-x)+'̅':''+x).join('')+']';}
 // ---------- axis rendering ----------
@@ -711,9 +773,71 @@ function renderCenters(M,center){
     }
   }
 }
+// positions of the inversion points along the infinite line carrying one drawn piece, in units of
+// the lattice period along the axis and measured from seg[0]; the list reaches past both ends so
+// the plates between the last ring inside and the first ring outside are spaced like the rest
+function _rotoRings(a,seg){
+  const d=a.dir, dd=_dot(d,d), s0=seg[0];
+  const len=_dot([0,1,2].map(i=>seg[1][i]-s0[i]),d)/dd, seen=new Set(), rings=[];
+  for(const ip of a.ips) for(let i=-2;i<=2;i++)for(let j=-2;j<=2;j++)for(let k=-2;k<=2;k++){
+    const v=[ip[0]+i-s0[0],ip[1]+j-s0[1],ip[2]+k-s0[2]], c=_cross(v,d);
+    if(_dot(c,c)>1e-10) continue;
+    const lam=_dot(v,d)/dd; if(lam<-1.5||lam>len+1.5) continue;
+    const key=lam.toFixed(5); if(!seen.has(key)){ seen.add(key); rings.push(lam); }
+  }
+  return {len,rings:rings.sort((x,y)=>x-y)};
+}
+// a rotoinversion axis shares its line with a 2-fold, 3-fold or 4-fold rod, so it is drawn as flat
+// plates threaded on a thin core (squares for 4̄, triangles for 3̄, hexagons for 6̄, after the
+// International Tables symbols), with a ring at each inversion point
+function addRotoPiece(a,order,seg,M,center,rad,color,op,top){
+  const {len,rings}=_rotoRings(a,seg);
+  const at=lam=>fracToCart([0,1,2].map(i=>seg[0][i]+lam*a.dir[i]),M,center);
+  const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
+  addRod(p1,p2,rad*0.55,color,op,top);
+  const u=new THREE.Vector3(p2[0]-p1[0],p2[1]-p1[1],p2[2]-p1[2]).normalize();
+  const mat=new THREE.MeshPhongMaterial({color,transparent:op<1,opacity:op,emissive:color,emissiveIntensity:top?0.45:0.25,depthTest:!top});
+  const plate=new THREE.CylinderGeometry(rad*4.2,rad*4.2,rad*0.9,order);
+  const ring=new THREE.TorusGeometry(rad*3.4,rad*0.6,8,24);
+  const qPlate=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0),u);
+  const qRing=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),u);
+  const put=(geo,q,lam)=>{
+    if(lam<-1e-6||lam>len+1e-6) return;
+    const p=at(lam), m=new THREE.Mesh(geo,mat); m.position.set(p[0],p[1],p[2]); m.quaternion.copy(q);
+    if(top) m.renderOrder=999;
+    staticG.add(m);
+  };
+  for(const r of rings) put(ring,qRing,r);
+  for(let i=0;i+1<rings.length;i++){
+    const gap=rings[i+1]-rings[i], nb= gap>0.9?3 : gap>0.45?2 : 1;
+    for(let j=1;j<=nb;j++) put(plate,qPlate,rings[i]+gap*j/(nb+1));
+  }
+}
+function renderRoto(M,center){
+  if(!showAxes||!rotoData) return;
+  const anySel=selectedAxis!=null;
+  for(const g of rotoData){
+    const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1;
+    const draw=(a,seg,col)=>addRotoPiece(a,g.order,seg,M,center,rad,col,op,sel);
+    if(sel&&selectedClass!=null){                                    // isolating one class of this row
+      const lay=isolationLayout();
+      if(lay) for(const p of lay.pieces) draw(p.line,p.seg,p.col);
+      continue;
+    }
+    for(const a of g.lines){
+      const col=sel?vividFor(g.classes||[],a.cls):(riClassColor[a.cls]||'#a6e35a');
+      const drawn=new Set();
+      for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++){
+        const seg=clipAxisFrac(a.dir,[a.p0[0]+lx,a.p0[1]+ly,a.p0[2]+lz]); if(!seg) continue;
+        const sk=seg[0].concat(seg[1]).map(x=>x.toFixed(3)).join(','); if(drawn.has(sk)) continue; drawn.add(sk);
+        draw(a,seg,col);
+      }
+    }
+  }
+}
 function rowClasses(key){
   if(key==='CTR') return centersData?[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b):[];
-  const g=(axesData||[]).find(x=>x.key===key)||(planesData||[]).find(x=>x.key===key);
+  const g=(axesData||[]).find(x=>x.key===key)||(rotoData||[]).find(x=>x.key===key)||(planesData||[]).find(x=>x.key===key);
   return (g&&g.classes)||[];
 }
 // a row holding a single class loses nothing by isolating it, so selecting the row isolates that
@@ -728,6 +852,7 @@ function renderAxesPanel(){
   const swatch=(k,c,col,n,tot)=>`<i class="${selectedAxis===k&&selectedClass===c?'on':''}" data-k="${k}" data-cls="${c}" style="background:${col};color:${labelInk(col)}" title="${n} of the ${tot}: click to show only these">${n}</i>`;
   const rows=arr=>arr.length?arr.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:${axColor(g.order)}">${g.sym}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axcl">${(g.classes||[]).map(c=>swatch(g.key,c,selectedAxis===g.key?vividFor(g.classes,c):axClassColor[c],g.lines.filter(a=>a.cls===c).length,g.lines.length)).join('')}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const rot=axesData.filter(g=>!g.screw), scr=axesData.filter(g=>g.screw);
+  const rirows=(rotoData&&rotoData.length)?rotoData.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:#a6e35a;text-decoration:overline">${g.order}</span><span class="axdir">${dirStr(g.dir)}</span><span class="axcl">${(g.classes||[]).map(c=>swatch(g.key,c,selectedAxis===g.key?vividFor(g.classes,c):riClassColor[c],g.lines.filter(a=>a.cls===c).length,g.lines.length)).join('')}</span><span class="axn">×${g.lines.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const millerStr=n=>'('+n.map(x=> x<0?(-x)+'̅':''+x).join('')+')';
   const prows=(planesData&&planesData.length)?planesData.map(g=>`<div class="ax ${selectedAxis===g.key?'sel':''}" data-k="${g.key}"><span class="axplay" data-k="${g.key}" title="animate this operation">${playing===g.key?'⏸':'▶'}</span><span class="axsym" style="color:#ff8ab0">${g.sym}</span><span class="axdir">${millerStr(g.n)}</span><span class="axcl">${(g.classes||[]).map(c=>swatch(g.key,c,selectedAxis===g.key?vividFor(g.classes,c):plClassColor[c],g.planes.filter(p=>p.cls===c).length,g.planes.length)).join('')}</span><span class="axn">×${g.planes.length}</span></div>`).join(''):'<div class="axnone">none</div>';
   const ctCls=centersData?[...new Set(centersData.map(o=>o.cls))].sort((a,b)=>a-b):[];
@@ -735,6 +860,7 @@ function renderAxesPanel(){
   const tot=axesData.reduce((n,g)=>n+g.lines.length,0);
   const totP=planesData?planesData.reduce((n,g)=>n+g.planes.length,0):0;
   const totC=centersData?centersData.length:0;
+  const totR=rotoData?rotoData.reduce((n,g)=>n+g.lines.length,0):0;
   // when one class is isolated, spell out what is on screen versus how many are genuinely distinct
   let isoNote='';
   const lay=isolationLayout();
@@ -749,15 +875,17 @@ function renderAxesPanel(){
       +`</div>`;
   }
   const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size
+           +(rotoData?new Set(rotoData.flatMap(g=>g.classes||[])).size:0)
            +(planesData?new Set(planesData.flatMap(g=>g.classes||[])).size:0)
            +ctCls.length;
   el.innerHTML=`<h2>Symmetry elements</h2>
-    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies. Click a row to recolour its copies in contrasting hues, or a numbered dot to isolate one class: this cell's own elements share the class colour, and copies belonging to neighbouring cells take one colour per cell.</div>
+    <div class="axhint">▶ animates the operation (atoms map onto the crystal). Solid rod = rotation, threaded helix = screw (its pitch and twist are the screw's own), polygon beads = rotoinversion axis (squares for <span style="text-decoration:overline">4</span>, triangles for <span style="text-decoration:overline">3</span>, hexagons for <span style="text-decoration:overline">6</span>; rings mark its inversion points), translucent sheet = mirror/glide plane (dashed outline = glide), gold dot = inversion centre. Hue = element family; shades within a hue separate the symmetry-inequivalent copies. Click a row to recolour its copies in contrasting hues, or a numbered dot to isolate one class: this cell's own elements share the class colour, and copies belonging to neighbouring cells take one colour per cell.</div>
     <div class="axgrp">Rotation axes</div>${rows(rot)}
     <div class="axgrp">Screw axes</div>${rows(scr)}
+    <div class="axgrp">Rotoinversion axes</div>${rirows}
     <div class="axgrp">Mirror &amp; glide planes</div>${prows}
     <div class="axgrp">Inversion centres</div>${crow}
-    <div class="axtot">${tot} axes · ${totP} planes · ${totC} centres in this cell · ${uniq} symmetry-unique elements</div>${isoNote}`;
+    <div class="axtot">${tot} axes · ${totR} rotoinversion axes · ${totP} planes · ${totC} centres in this cell · ${uniq} symmetry-unique elements</div>${isoNote}`;
   el.querySelectorAll('.ax').forEach(r=>r.onclick=(ev)=>{
     if(ev.target.classList.contains('axplay')) return;
     selectedAxis = selectedAxis===r.dataset.k ? null : r.dataset.k;
@@ -781,6 +909,7 @@ function renderAxesPanel(){
     rebuild();
     if(key==='CTR') animateCenter();
     else if(key.startsWith('PL')) animatePlane(planesData.find(x=>x.key===key));
+    else if(key.startsWith('RI')) animateRoto(rotoData.find(x=>x.key===key));
     else animateAxis(axesData.find(x=>x.key===key));
     renderAxesPanel();
   });
@@ -801,7 +930,7 @@ const content=new THREE.Group(), staticG=new THREE.Group(); model.add(content); 
 let anim=null;
 let mode='3d', autorot=true, fitR=1.3;
 let showCell=true, showPack=false;
-let showAxes=false, axesData=null, planesData=null, centersData=null, selectedAxis=null, selectedClass=null;
+let showAxes=false, axesData=null, rotoData=null, planesData=null, centersData=null, selectedAxis=null, selectedClass=null;
 let exampleMode=false;
 
 const PALETTE=['#6ea8ff','#ff8a3d','#8ce0c0','#e06ec0','#f0d060','#7de0ff','#b088ff','#ff6e6e'];
@@ -861,6 +990,7 @@ function rebuild(){
     for(const c of corners) maxR=Math.max(maxR,Math.hypot(c[0],c[1],c[2]));
   }
   renderAxes(M,center);
+  renderRoto(M,center);
   renderPlanes(M,center);
   renderCenters(M,center);
   fitR=maxR*1.18;
@@ -949,6 +1079,23 @@ function animatePlane(g){
         G:new THREE.Vector3(Gc[0],Gc[1],Gc[2]), period:2600, t0:performance.now()};
   content.matrixAutoUpdate=false;
 }
+// a rotoinversion about the inversion point nearest the cell centre: rotate by 360/n, then invert.
+// Both senses of rotation belong to the group (each operation's inverse fixes the same point)
+function animateRoto(g){
+  if(!g) return;
+  const M=curCell().M;
+  const center=[(M[0][0]+M[1][0]+M[2][0])/2,(M[0][1]+M[1][1]+M[2][1])/2,(M[0][2]+M[1][2]+M[2][2])/2];
+  let best=null,bd=Infinity;
+  for(const a of g.lines) for(const ip of a.ips){
+    const p=fracToCart(ip,M,center), d=Math.hypot(p[0],p[1],p[2]);
+    if(d<bd){ bd=d; best=p; }
+  }
+  if(!best) return;
+  const rv=fracToCart(g.dir,M,[0,0,0]), rl=Math.hypot(rv[0],rv[1],rv[2]);
+  anim={type:'roto', g, D:new THREE.Vector3(rv[0]/rl,rv[1]/rl,rv[2]/rl),
+        P0:new THREE.Vector3(best[0],best[1],best[2]), n:g.order, period:3200, t0:performance.now()};
+  content.matrixAutoUpdate=false;
+}
 function animateCenter(){
   if(!centersData||!centersData.length) return;
   const M=curCell().M;
@@ -977,6 +1124,13 @@ function updateAnim(){
       0,0,0,1);
     const S=new THREE.Matrix4().makeTranslation(anim.G.x*e,anim.G.y*e,anim.G.z*e);
     content.matrix.identity(); content.matrix.multiply(S).multiply(Tp).multiply(F).multiply(Tn);
+  } else if(anim.type==='roto'){
+    // the two stages play one after the other so the rotation and the inversion read separately
+    const u=Math.min(1,phase/0.78), e1=easeIO(Math.min(1,2*u)), e2=easeIO(Math.max(0,2*u-1));
+    const R=new THREE.Matrix4().makeRotationFromQuaternion(new THREE.Quaternion().setFromAxisAngle(anim.D,(2*Math.PI/anim.n)*e1));
+    let s=1-2*e2; if(Math.abs(s)<1e-4) s=1e-4;     // dodge the exactly-singular instant
+    const F=new THREE.Matrix4().makeScale(s,s,s);
+    content.matrix.identity(); content.matrix.multiply(Tp).multiply(F).multiply(R).multiply(Tn);
   } else if(anim.type==='inv'){
     let s=1-2*e; if(Math.abs(s)<1e-4) s=1e-4;     // dodge the exactly-singular instant
     const F=new THREE.Matrix4().makeScale(s,s,s);
@@ -1020,6 +1174,7 @@ function selectGroup(no){
   axesData=computeAxes(current.ops); selectedAxis=null; selectedClass=null;
   planesData=computePlanes(current.ops); assignPlaneClasses(planesData,current.ops);
   centersData=computeCenters(current.ops); assignCenterClasses(centersData,current.ops);
+  rotoData=computeRoto(current.ops); assignRotoClasses(rotoData,current.ops);
   exampleMode=false;
   const tb=document.getElementById('tEx'); if(tb){ tb.classList.remove('on'); tb.style.opacity=EX[no]?1:0.4; }
   buildList(document.getElementById('search').value);
