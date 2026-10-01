@@ -201,7 +201,20 @@ function _T(A){return [A[0],A[3],A[6],A[1],A[4],A[7],A[2],A[5],A[8]];}
 function _inv(A){const d=_det(A);return [(A[4]*A[8]-A[5]*A[7]),-(A[1]*A[8]-A[2]*A[7]),(A[1]*A[5]-A[2]*A[4]),-(A[3]*A[8]-A[5]*A[6]),(A[0]*A[8]-A[2]*A[6]),-(A[0]*A[5]-A[2]*A[3]),(A[3]*A[7]-A[4]*A[6]),-(A[0]*A[7]-A[1]*A[6]),(A[0]*A[4]-A[1]*A[3])].map(x=>x/d);}
 function _gcd(a,b){a=Math.abs(a);b=Math.abs(b);while(b){const t=a%b;a=b;b=t;}return a;}
 function _redInt(v){const r=v.map(x=>Math.round(x));let g=_gcd(_gcd(r[0],r[1]),r[2]);if(!g)g=1;let s=r.map(x=>x/g);for(const x of s){if(x!==0){if(x<0)s=s.map(y=>-y);break;}}return s;}
-function analyzeOp(R,t){
+// the shortest lattice repeat along dir, as the fraction 1/k of dir. Centring can make it shorter than
+// dir itself (½[111] in I lattices, ½[110] in F and C lattices), and a screw's step is a fraction of
+// that repeat, not of dir: measured against dir, a body-centred 3₂ screw reads as a plain 3
+function _periodDiv(dir,cent){
+  for(const k of [6,4,3,2]){
+    const v=dir.map(x=>x/k);
+    if(cent.some(c=>[0,1,2].every(i=>{ const d=Math.abs(((v[i]-c[i])%1+1)%1); return d<1e-6||d>1-1e-6; }))) return k;
+  }
+  return 1;
+}
+function _centring(ops){
+  return ops.filter(o=>o[0]===1&&o[4]===1&&o[8]===1&&(o[9]%24||o[10]%24||o[11]%24)).map(o=>[o[9]/24,o[10]/24,o[11]/24]);
+}
+function analyzeOp(R,t,cent=[]){
   if(Math.round(_det(R))!==1) return null;                 // proper rotations only
   const tr=R[0]+R[4]+R[8], order={'3':1,'-1':2,'0':3,'1':4,'2':6}[String(tr)];
   if(!order||order===1) return null;
@@ -213,7 +226,8 @@ function analyzeOp(R,t){
   let acc=[0,0,0],Rk=[1,0,0,0,1,0,0,0,1];                   // intrinsic (screw) translation
   for(let k=0;k<order;k++){const v=_mv(Rk,t);acc=[acc[0]+v[0],acc[1]+v[1],acc[2]+v[2]];Rk=_mul(Rk,R);}
   const s=acc.map(x=>x/order), dd=dir[0]*dir[0]+dir[1]*dir[1]+dir[2]*dir[2];
-  const f=(s[0]*dir[0]+s[1]*dir[1]+s[2]*dir[2])/dd, m=(((Math.round(f*order))%order)+order)%order;
+  const k=_periodDiv(dir,cent);
+  const f=(s[0]*dir[0]+s[1]*dir[1]+s[2]*dir[2])/dd*k, m=(((Math.round(f*order))%order)+order)%order;
   const A=[1-R[0],-R[1],-R[2],-R[3],1-R[4],-R[5],-R[6],-R[7],1-R[8]], b=[t[0]-s[0],t[1]-s[1],t[2]-s[2]];
   const AT=_T(A),ATA=_mul(AT,A),dl=Math.sqrt(dd),dh=dir.map(x=>x/dl),N=ATA.slice();
   const o=[dh[0]*dh[0],dh[0]*dh[1],dh[0]*dh[2],dh[1]*dh[0],dh[1]*dh[1],dh[1]*dh[2],dh[2]*dh[0],dh[2]*dh[1],dh[2]*dh[2]];
@@ -223,22 +237,22 @@ function analyzeOp(R,t){
   const lam=-p0[a]/dir[a]; p0=[p0[0]+lam*dir[0],p0[1]+lam*dir[1],p0[2]+lam*dir[2]];
   p0=p0.map((x,i)=> i===a?0:((x%1)+1)%1);
   p0=p0.map(x=>{let r=Math.round(x*24)/24; if(Math.abs(r-1)<1e-6)r=0; return r;});
-  return {order,m,dir,p0,sense};
+  return {order,m,dir,p0,sense,per:1/k};
 }
 const _rank=a=>a.order*1000+(a.sense>0?100:0)+(a.m===0?10:0)+(5-a.m);
 const SUB=['','₁','₂','₃','₄','₅'];
 function computeAxes(ops){
-  const seen=new Map(), L=[-1,0,1,2];
+  const seen=new Map(), L=[-1,0,1,2], cent=_centring(ops);
   for(const op of ops){const R=op.slice(0,9),t0=[op[9]/24,op[10]/24,op[11]/24];
     for(const lx of L)for(const ly of L)for(const lz of L){
-      const a=analyzeOp(R,[t0[0]+lx,t0[1]+ly,t0[2]+lz]); if(!a) continue;
+      const a=analyzeOp(R,[t0[0]+lx,t0[1]+ly,t0[2]+lz],cent); if(!a) continue;
       const key=a.dir.join(',')+'|'+a.p0.map(x=>x.toFixed(3)).join(',');
       if(!seen.has(key)||_rank(a)>_rank(seen.get(key))) seen.set(key,a);
     }}
   const groups=new Map();
   for(const a of seen.values()){
     const sym=String(a.order)+(a.m?SUB[a.m]:''), gk=sym+'|'+a.dir.join(',');
-    if(!groups.has(gk)) groups.set(gk,{key:gk,sym,dir:a.dir,order:a.order,m:a.m,screw:a.m!==0,lines:[]});
+    if(!groups.has(gk)) groups.set(gk,{key:gk,sym,dir:a.dir,order:a.order,m:a.m,per:a.per,screw:a.m!==0,lines:[]});
     groups.get(gk).lines.push(a);
   }
   const out=[...groups.values()].sort((x,y)=> y.order-x.order || (x.screw?1:0)-(y.screw?1:0) || (x.dir.join()<y.dir.join()?-1:1));
@@ -696,7 +710,7 @@ function renderAxes(M,center){
   const anySel=selectedAxis!=null;
   for(const g of axesData){
     const sel=selectedAxis===g.key, rad=sel?0.021:0.008, op=(anySel&&!sel)?0.16:1;
-    const pv=fracToCart(g.dir,M,[0,0,0]), periodLen=Math.hypot(pv[0],pv[1],pv[2]);
+    const pv=fracToCart(g.dir,M,[0,0,0]), periodLen=Math.hypot(pv[0],pv[1],pv[2])*(g.per||1);
     const draw=(seg,col)=>{
       const p1=fracToCart(seg[0],M,center), p2=fracToCart(seg[1],M,center);
       if(g.screw) addScrewHelix(p1,p2,rad,col,op,sel,g.order,g.m,periodLen); else addRod(p1,p2,rad,col,op,sel);
@@ -1098,8 +1112,8 @@ function animateAxis(g){
   const rv=[best.dir[0]*M[0][0]+best.dir[1]*M[1][0]+best.dir[2]*M[2][0],
             best.dir[0]*M[0][1]+best.dir[1]*M[1][1]+best.dir[2]*M[2][1],
             best.dir[0]*M[0][2]+best.dir[1]*M[1][2]+best.dir[2]*M[2][2]];
-  const repLen=Math.hypot(rv[0],rv[1],rv[2]);
-  anim={g, D:new THREE.Vector3(rv[0]/repLen,rv[1]/repLen,rv[2]/repLen),
+  const len=Math.hypot(rv[0],rv[1],rv[2]), repLen=len*(g.per||1);
+  anim={g, D:new THREE.Vector3(rv[0]/len,rv[1]/len,rv[2]/len),
         P0:new THREE.Vector3(best.mid[0],best.mid[1],best.mid[2]),
         n:g.order, m:g.m||0, repLen, period:2600, t0:performance.now()};
   content.matrixAutoUpdate=false;
