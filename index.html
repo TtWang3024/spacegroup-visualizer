@@ -1085,11 +1085,15 @@ function easeIO(u){ return u<0.5?2*u*u:1-Math.pow(-2*u+2,2)/2; }
 function animateAxis(g){
   const M=curCell().M;
   const center=[(M[0][0]+M[1][0]+M[2][0])/2,(M[0][1]+M[1][1]+M[2][1])/2,(M[0][2]+M[1][2]+M[2][2])/2];
+  // any lattice copy of a line is an axis of the same operation; a diagonal line's unshifted copy can
+  // touch the cell only at a corner, so search the shifted copies for the piece nearest the centre
   let best=null,bd=1e9;
-  for(const a of g.lines){const seg=clipAxisFrac(a.dir,a.p0); if(!seg) continue;
+  for(const a of g.lines) for(let lx=-1;lx<=1;lx++)for(let ly=-1;ly<=1;ly++)for(let lz=-1;lz<=1;lz++){
+    const seg=clipAxisFrac(a.dir,[a.p0[0]+lx,a.p0[1]+ly,a.p0[2]+lz]); if(!seg) continue;
     const p1=fracToCart(seg[0],M,center),p2=fracToCart(seg[1],M,center);
     const mid=[(p1[0]+p2[0])/2,(p1[1]+p2[1])/2,(p1[2]+p2[2])/2], dc=Math.hypot(mid[0],mid[1],mid[2]);
-    if(dc<bd){bd=dc;best={dir:a.dir,mid};}}
+    if(dc<bd){bd=dc;best={dir:a.dir,mid};}
+  }
   if(!best) return;
   const rv=[best.dir[0]*M[0][0]+best.dir[1]*M[1][0]+best.dir[2]*M[2][0],
             best.dir[0]*M[0][1]+best.dir[1]*M[1][1]+best.dir[2]*M[2][1],
@@ -1106,8 +1110,8 @@ function animatePlane(g){
   const center=[(M[0][0]+M[1][0]+M[2][0])/2,(M[0][1]+M[1][1]+M[2][1])/2,(M[0][2]+M[1][2]+M[2][2])/2];
   const dc=v=>[v[0]*M[0][0]+v[1]*M[1][0]+v[2]*M[2][0], v[0]*M[0][1]+v[1]*M[1][1]+v[2]*M[2][1], v[0]*M[0][2]+v[1]*M[1][2]+v[2]*M[2][2]];
   let best=null,bd=1e9;
-  for(const p of g.planes){
-    const poly=clipPlaneFrac(p.n,p.d0); if(!poly) continue;
+  for(const p of g.planes) for(let k=-1;k<=1;k++){             // lattice copies too, as for axes
+    const poly=clipPlaneFrac(p.n,p.d0+k); if(!poly) continue;
     const vs=poly.map(f=>fracToCart(f,M,center));
     const c0=vs.reduce((a,v)=>[a[0]+v[0]/vs.length,a[1]+v[1]/vs.length,a[2]+v[2]/vs.length],[0,0,0]);
     const d=Math.hypot(c0[0],c0[1],c0[2]);
