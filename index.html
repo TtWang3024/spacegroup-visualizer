@@ -174,7 +174,7 @@ function orbit(p, ops){
     const z=wrap01(o[6]*p[0]+o[7]*p[1]+o[8]*p[2]+o[11]/24);
     let kx=Math.round(x*1000)%1000, ky=Math.round(y*1000)%1000, kz=Math.round(z*1000)%1000;
     const key=kx+','+ky+','+kz;
-    if(!seen.has(key)){ seen.add(key); out.push([x,y,z]); }
+    if(!seen.has(key)){ seen.add(key); const pt=[x,y,z]; pt.R=o.slice(0,9); out.push(pt); }   // R: rotation part of the op that made it
   }
   return out;
 }
@@ -603,6 +603,46 @@ function assignRotoClasses(groups,ops){
   all.forEach((c,i)=>{const l= all.length===1?64 : 42+34*i/(all.length-1); riClassColor[c]=`hsl(95,70%,${Math.round(l)}%)`;});
   for(const g of groups) g.classes=[...new Set(g.lines.map(a=>a.cls))].sort((x,y)=>x-y);
 }
+// ---------- step colours: atoms coloured by how often the selected operation made them ----------
+// Every generated atom is h·p for one operation h. With G the rotation part of the selected row's
+// operation, the point group splits into cosets {G^k r}; an atom whose h has rotation part G^k r
+// gets colour k. Applying the operation once turns G^k r into G^(k+1) r, so every atom moves one
+// colour along, and translations (lattice or centring) never change the colour
+const STEP_COLOURS=['#ff8a3d','#4fb3ff','#7be07b','#c58bff','#ffd84d','#ff6fae'];
+function _rotOrder(R){
+  const I='1,0,0,0,1,0,0,0,1'; let P=R.slice(), k=1;
+  while(P.join(',')!==I&&k<12){ P=_mul(P,R); k++; }
+  return k;
+}
+// G turns the same way as the row's ▶ animation: +360/n about +dir for axes, and for rotoinversions
+// the rotation part -G does
+function stepGenerator(key){
+  if(key==null||!current) return null;
+  const Rs=[], seen=new Set();
+  for(const op of current.ops){ const R=op.slice(0,9), k=R.join(','); if(!seen.has(k)){ seen.add(k); Rs.push(R); } }
+  const w=R=>[R[7]-R[5],R[2]-R[6],R[3]-R[1]];
+  if(key==='CTR') return Rs.find(R=>R[0]+R[4]+R[8]===-3)||null;
+  if(key.startsWith('PL')){
+    const g=(planesData||[]).find(x=>x.key===key); if(!g) return null;
+    return Rs.find(R=>Math.round(_det(R))===-1&&R[0]+R[4]+R[8]===1&&analyzeReflection(R,[0,0,0]).n.join()===g.n.join())||null;
+  }
+  if(key.startsWith('RI')){
+    const g=(rotoData||[]).find(x=>x.key===key); if(!g) return null;
+    return Rs.find(R=>{ const r=analyzeRotoinversion(R,[0,0,0]); return r&&r.order===g.order&&r.dir.join()===g.dir.join()&&_dot(w(R.map(x=>-x)),g.dir)>0; })||null;
+  }
+  const g=(axesData||[]).find(x=>x.key===key); if(!g) return null;
+  return Rs.find(R=>{ const a=analyzeOp(R,[0,0,0]); return a&&a.order===g.order&&a.dir.join()===g.dir.join()&&(g.order===2||_dot(w(R),g.dir)>0); })||null;
+}
+function stepColouring(){
+  if(!showAxes||selectedAxis==null||exampleMode||!current) return null;
+  const G=stepGenerator(selectedAxis); if(!G) return null;
+  const n=_rotOrder(G), step=new Map();
+  for(const op of current.ops){
+    const R=op.slice(0,9); if(step.has(R.join(','))) continue;
+    let P=R; for(let k=0;k<n;k++){ step.set(P.join(','),k); P=_mul(G,P); }
+  }
+  return {n, colours:STEP_COLOURS.slice(0,n), colourOf:R=>STEP_COLOURS[step.get(R.join(','))||0]};
+}
 function dirStr(d){return '['+d.map(x=> x<0?(-x)+'̅':''+x).join('')+']';}
 // ---------- axis rendering ----------
 function clipAxisFrac(dir,p0){
@@ -874,6 +914,11 @@ function renderAxesPanel(){
       +(lay.wrapped?` A diagonal ${nn(1)} can wrap through opposite faces: its longest piece inside the cell is its own, and the other piece continues the ${nn(1)} of the neighbouring cell named by the shortest shift.`:'')
       +`</div>`;
   }
+  const sc=sites.length?stepColouring():null;
+  if(sc){
+    const chips=sc.colours.map((c,k)=>`<span class="axtint"><i style="background:${c};color:${labelInk(c)}">${k}</i></span>`).join(' → ');
+    isoNote+=`<div class="axiso">Atoms coloured by step: ${chips} → back to 0. Colour k marks atoms made by applying this operation k times, so each ▶ moves every atom one colour along.</div>`;
+  }
   const uniq=new Set(axesData.flatMap(g=>g.classes||[])).size
            +(rotoData?new Set(rotoData.flatMap(g=>g.classes||[])).size:0)
            +(planesData?new Set(planesData.flatMap(g=>g.classes||[])).size:0)
@@ -963,18 +1008,17 @@ function rebuild(){
     }
     total=cc.ex.atoms.length;
   } else {
-    const matCache={};
+    const matCache={}, sc=stepColouring();
+    const matFor=col=> matCache[col]||(matCache[col]=new THREE.MeshPhongMaterial({color:col,shininess:60}));
     for(const s of sites){
       const pts=orbit(s.p, current.ops);
       s.mult=pts.length; total+=pts.length;
-      if(!matCache[s.color]) matCache[s.color]=new THREE.MeshPhongMaterial({color:s.color,shininess:60});
-      const mat=matCache[s.color];
-      for(const f of pts) for(const i of shifts) for(const j of shifts) for(const k of shifts){
+      for(const f of pts){ const mat=matFor(sc?sc.colourOf(f.R):s.color); for(const i of shifts) for(const j of shifts) for(const k of shifts){
         const c=fracToCart([f[0]+i,f[1]+j,f[2]+k],M,center);
         const m=new THREE.Mesh(sphereGeo,mat); m.scale.setScalar(0.052);
         m.position.set(c[0],c[1],c[2]); content.add(m);
         maxR=Math.max(maxR,Math.hypot(c[0],c[1],c[2]));
-      }
+      }}
     }
   }
   if(showCell){
